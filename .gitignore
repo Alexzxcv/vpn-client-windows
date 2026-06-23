@@ -1,0 +1,24 @@
+# Binaries
+/bin/*.exe
+/bin/xray*
+*.exe~
+
+# Go
+vendor/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.rsbuild/
+
+# Env / local
+.env
+.env.*
+!.env.example
+*.log
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
