@@ -364,9 +364,15 @@ func resolveUIDir() string {
 		return env
 	}
 	if exe, err := os.Executable(); err == nil {
-		cand := filepath.Join(filepath.Dir(exe), "frontend", "dist")
-		if dirExists(cand) {
-			return cand
+		dir := filepath.Dir(exe)
+		for _, cand := range []string{
+			filepath.Join(dir, "ui"),                     // release layout: ui/ рядом с exe
+			filepath.Join(dir, "frontend", "dist"),       // dist рядом с exe
+			filepath.Join(dir, "..", "frontend", "dist"), // dev: bin\..\frontend\dist
+		} {
+			if dirExists(cand) {
+				return cand
+			}
 		}
 	}
 	if wd, err := os.Getwd(); err == nil {
