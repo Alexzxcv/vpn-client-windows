@@ -217,6 +217,16 @@ func (c *Client) VPNConfig(ctx context.Context, deviceID string, serverID *strin
 	}, nil
 }
 
+// RegisterDevice привязывает текущее устройство (идемпотентный re-attach).
+// Обязательно перед /vpn/config: бэкенд проверяет, что устройство разрешено.
+func (c *Client) RegisterDevice(ctx context.Context, deviceID, name, platform string) error {
+	body := map[string]string{"device_id": deviceID, "name": name, "platform": platform}
+	if err := c.doJSON(ctx, http.MethodPost, "/devices", body, nil, true); err != nil {
+		return fmt.Errorf("register device: %w", err)
+	}
+	return nil
+}
+
 // doJSON performs an HTTP request, optionally attaching the bearer token and
 // retrying once after a refresh on a 401.
 func (c *Client) doJSON(ctx context.Context, method, path string, in, out any, auth bool) error {

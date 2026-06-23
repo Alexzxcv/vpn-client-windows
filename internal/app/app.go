@@ -184,6 +184,15 @@ func (a *App) Connect(ctx context.Context, serverID *string) (State, error) {
 		return a.fail(fmt.Errorf("device id: %w", err))
 	}
 
+	// Привязываем устройство (идемпотентно) — бэкенд требует этого до /vpn/config.
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "windows-client"
+	}
+	if err := a.be.RegisterDevice(ctx, deviceID, hostname, "windows"); err != nil {
+		return a.fail(fmt.Errorf("register device: %w", err))
+	}
+
 	cfg, err := a.be.VPNConfig(ctx, deviceID, serverID)
 	if err != nil {
 		return a.fail(fmt.Errorf("fetch vpn config: %w", err))
