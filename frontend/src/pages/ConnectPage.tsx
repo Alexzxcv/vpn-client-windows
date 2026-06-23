@@ -30,7 +30,7 @@ export const ConnectPage = observer(function ConnectPage() {
   const auth = useAuth();
   const [copied, setCopied] = useState(false);
 
-  const socks = conn.proxy?.socks ?? '127.0.0.1:10808';
+  const socks = conn.proxy?.socks ?? '127.0.0.1:10800';
   const curlHint = `curl --socks5 ${socks} https://ifconfig.me`;
 
   const selected = conn.locations.find((l) => l.id === conn.selectedServerId);

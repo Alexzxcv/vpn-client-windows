@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/device"
+	"github.com/Alexzxcv/vpn-client-windows/internal/sysproxy"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
 
@@ -26,8 +28,8 @@ const (
 
 // Default local proxy ports.
 const (
-	DefaultSocksPort = 10808
-	DefaultHTTPPort  = 10809
+	DefaultSocksPort = 10800
+	DefaultHTTPPort  = 10801
 )
 
 // LocationInfo is the minimal current-location descriptor for Status.
@@ -56,11 +58,16 @@ type App struct {
 	socksPort int
 	httpPort  int
 
+	// manageProxy: ставить/снимать системный прокси Windows на connect/disconnect.
+	// Отключается env VPNCLIENT_NO_SYSPROXY (например для headless-тестов).
+	manageProxy bool
+
 	mu        sync.Mutex
 	state     State
 	location  *LocationInfo
 	since     *time.Time
 	lastError string
+	proxyOn   bool
 }
 
 // New builds an App. log may be nil. socksPort/httpPort default to
@@ -76,13 +83,14 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, apiBase string,
 		httpPort = DefaultHTTPPort
 	}
 	return &App{
-		log:       log,
-		be:        be,
-		xm:        xm,
-		apiBase:   apiBase,
-		socksPort: socksPort,
-		httpPort:  httpPort,
-		state:     StateDisconnected,
+		log:         log,
+		be:          be,
+		xm:          xm,
+		apiBase:     apiBase,
+		socksPort:   socksPort,
+		httpPort:    httpPort,
+		manageProxy: os.Getenv("VPNCLIENT_NO_SYSPROXY") == "",
+		state:       StateDisconnected,
 	}
 }
 
@@ -197,12 +205,26 @@ func (a *App) Connect(ctx context.Context, serverID *string) (State, error) {
 		return a.fail(fmt.Errorf("xray not ready: %w", err))
 	}
 
+	// Поднимаем системный прокси Windows на локальный xray (http+socks).
+	if a.manageProxy {
+		httpAddr := fmt.Sprintf("127.0.0.1:%d", a.httpPort)
+		socksAddr := fmt.Sprintf("127.0.0.1:%d", a.socksPort)
+		if err := sysproxy.Set(httpAddr, socksAddr); err != nil {
+			// Туннель поднят, но прокси не выставился — не валим коннект, логируем.
+			a.log.Error("set system proxy", slog.String("err", err.Error()))
+		} else {
+			a.mu.Lock()
+			a.proxyOn = true
+			a.mu.Unlock()
+		}
+	}
+
 	var loc *LocationInfo
 	if serverID != nil {
 		loc = &LocationInfo{ID: *serverID}
 	}
 	a.setState(StateConnected, loc, "")
-	a.log.Info("connected")
+	a.log.Info("connected", slog.Int("socks", a.socksPort), slog.Int("http", a.httpPort))
 	return StateConnected, nil
 }
 
@@ -212,9 +234,20 @@ func (a *App) fail(err error) (State, error) {
 	return StateError, err
 }
 
-// Disconnect stops xray and resets state.
+// Disconnect stops xray, снимает системный прокси и сбрасывает состояние.
 func (a *App) Disconnect(ctx context.Context) error {
 	_ = ctx
+
+	a.mu.Lock()
+	wasProxy := a.proxyOn
+	a.proxyOn = false
+	a.mu.Unlock()
+	if wasProxy {
+		if err := sysproxy.Clear(); err != nil {
+			a.log.Error("clear system proxy", slog.String("err", err.Error()))
+		}
+	}
+
 	err := a.xm.Stop()
 	a.setState(StateDisconnected, nil, "")
 	a.log.Info("disconnected")
