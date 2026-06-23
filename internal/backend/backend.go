@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const defaultAPIBase = "http://localhost:8080"
+const defaultAPIBase = "https://bot.niffty.ru/api"
 
 // DefaultAPIBase resolves the backend base URL. Pass the value of the
 // VPNCLIENT_API_BASE env var (or empty for the default).
