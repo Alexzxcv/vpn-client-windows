@@ -62,9 +62,25 @@ type Client struct {
 	base string
 	http *http.Client
 
+	// OnTokens, если задан, вызывается при каждом изменении токенов
+	// (login/refresh/clear) — для персистентности на диске. Установить до
+	// первого использования.
+	OnTokens func(access, refresh string)
+
 	mu      sync.RWMutex
 	access  string
 	refresh string
+}
+
+// fireOnTokens уведомляет подписчика о текущих токенах (для сохранения).
+func (c *Client) fireOnTokens() {
+	if c.OnTokens == nil {
+		return
+	}
+	c.mu.RLock()
+	a, r := c.access, c.refresh
+	c.mu.RUnlock()
+	c.OnTokens(a, r)
 }
 
 // New creates a backend client. base is the backend root URL (no trailing slash
@@ -105,9 +121,10 @@ func (c *Client) Authenticated() bool {
 // ClearTokens drops any stored tokens (logout).
 func (c *Client) ClearTokens() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.access = ""
 	c.refresh = ""
+	c.mu.Unlock()
+	c.fireOnTokens()
 }
 
 type loginResp struct {
@@ -129,6 +146,7 @@ func (c *Client) Login(ctx context.Context, email, password string) error {
 	c.access = out.AccessToken
 	c.refresh = out.RefreshToken
 	c.mu.Unlock()
+	c.fireOnTokens()
 	return nil
 }
 
@@ -154,6 +172,7 @@ func (c *Client) refreshTokens(ctx context.Context) error {
 		c.refresh = out.RefreshToken
 	}
 	c.mu.Unlock()
+	c.fireOnTokens()
 	return nil
 }
 

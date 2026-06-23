@@ -16,6 +16,7 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/control"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singleinstance"
+	"github.com/Alexzxcv/vpn-client-windows/internal/tokenstore"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
 
@@ -44,6 +45,12 @@ func main() {
 
 	apiBase := backend.DefaultAPIBase(os.Getenv("VPNCLIENT_API_BASE"))
 	be := backend.New(apiBase, nil)
+	// Персистентность входа: подхватываем сохранённые токены и сохраняем при
+	// каждом изменении (login/refresh/logout) — вход переживает перезапуск.
+	if a, r := tokenstore.Load(); r != "" {
+		be.SetTokens(a, r)
+	}
+	be.OnTokens = tokenstore.Save
 	xm := xray.NewManager(log)
 	application := app.New(log, be, xm, apiBase, 0, 0)
 
