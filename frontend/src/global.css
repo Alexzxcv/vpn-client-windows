@@ -1,16 +1,40 @@
+/* Fonts — bundled offline via @fontsource (NOT CDN) — WebView2 must work offline */
+@import '@fontsource/archivo/600.css';
+@import '@fontsource/archivo/700.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette — single source of truth mirrors DESIGN_SYSTEM.md §1 */
 :root {
-  --bg: #15171c;
-  --bg-elev: #1d2026;
-  --bg-input: #23262e;
-  --border: #2c3038;
-  --text: #e6e8ec;
-  --text-dim: #9aa0ab;
-  --accent: #4c8dff;
-  --accent-hover: #5f9bff;
-  --green: #2ec27e;
-  --red: #f0506e;
-  --amber: #f5a623;
-  --radius: 8px;
+  /* Surfaces */
+  --void: #0a0c10;
+  --slate: #12151c;
+  --graphite: #181c25;
+  --hairline: #222835;
+  --edge: #2e3542;
+  /* Text */
+  --frost: #e6eaf2;
+  --ash: #8a93a6;
+  --mute: #5a6273;
+  /* Brand accent */
+  --ion: #3da9fc;
+  --ion-dim: #1e5c8f;
+  /* Status */
+  --ok: #46c28a;
+  --warn: #e0a22e;
+  --alert: #e5564b;
+  /* Dataviz secondary */
+  --viz-violet: #b98aff;
+  /* Radius */
+  --r-sm: 3px;
+  --r-md: 5px;
 }
 
 * {
@@ -25,12 +49,13 @@ body {
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--void);
+  color: var(--frost);
+  font-family: 'Inter', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   user-select: none;
 }
 
@@ -38,294 +63,42 @@ body {
   height: 100%;
 }
 
-code {
-  font-family: "Cascadia Code", "Consolas", monospace;
+/* tabular numerals everywhere mono is used */
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visible focus ring — DESIGN_SYSTEM §4 */
+:focus-visible {
+  outline: 2px solid var(--ion);
+  outline-offset: 1px;
+}
+
+/* Selection text only inside data/code areas */
+code,
+.selectable {
   user-select: text;
 }
 
-/* --- Layout --- */
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 100vh;
+/* uPlot dark theme overrides — see chartTheme.ts for option-level config */
+.uplot,
+.uplot * {
+  font-family: 'JetBrains Mono', monospace;
+}
+.u-axis {
+  color: var(--mute);
+}
+.u-cursor-x,
+.u-cursor-y {
+  border-right: 1px solid var(--edge);
 }
 
-.app-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elev);
-}
-
-.app-title {
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.app-version {
-  color: var(--text-dim);
-  font-size: 11px;
-}
-
-.app-main {
-  flex: 1;
-  padding: 16px;
-  overflow-y: auto;
-}
-
-.loading,
-.error {
-  font-size: 13px;
-}
-
-.loading {
-  color: var(--text-dim);
-  text-align: center;
-  padding: 24px 0;
-}
-
-.error {
-  color: var(--red);
-  background: rgba(240, 80, 110, 0.1);
-  border: 1px solid rgba(240, 80, 110, 0.3);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  word-break: break-word;
-}
-
-/* --- Fields --- */
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 14px;
-}
-
-.field-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-
-input,
-select {
-  width: 100%;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  padding: 9px 10px;
-  font-size: 14px;
-  outline: none;
-}
-
-input:focus,
-select:focus {
-  border-color: var(--accent);
-}
-
-select:disabled,
-input:disabled {
-  opacity: 0.6;
-}
-
-/* --- Buttons --- */
-.btn-primary {
-  width: 100%;
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 10px;
-  cursor: pointer;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 2px 4px;
-}
-
-.btn-logout {
-  margin-top: auto;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-dim);
-  padding: 8px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.btn-logout:hover {
-  color: var(--text);
-  border-color: var(--text-dim);
-}
-
-/* --- Login --- */
-.login {
-  display: flex;
-  flex-direction: column;
-}
-
-.login-title {
-  font-size: 18px;
-  margin: 4px 0 18px;
-}
-
-/* --- Connect page --- */
-.connect {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-
-.connect-status-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.connect-user {
-  font-size: 12px;
-  color: var(--text-dim);
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* --- Badge --- */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: var(--bg-input);
-}
-
-.badge-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-dim);
-}
-
-.badge-connected .badge-dot {
-  background: var(--green);
-}
-.badge-connecting .badge-dot {
-  background: var(--amber);
-}
-.badge-error .badge-dot {
-  background: var(--red);
-}
-.badge-disconnected .badge-dot {
-  background: var(--text-dim);
-}
-
-/* --- Connect button --- */
-.connect-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 140px;
-  height: 140px;
-  margin: 12px auto 18px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text);
-  cursor: pointer;
-  transition: transform 0.1s ease, border-color 0.15s ease;
-}
-
-.connect-btn:hover:not(:disabled) {
-  transform: scale(1.03);
-}
-
-.connect-btn:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-.connect-btn-off {
-  border-color: var(--accent);
-}
-
-.connect-btn-on {
-  border-color: var(--green);
-  color: var(--green);
-}
-
-.connect-btn-icon {
-  font-size: 38px;
-  line-height: 1;
-}
-
-.connect-btn-label {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-/* --- Proxy box --- */
-.proxy-box {
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.proxy-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.proxy-addr {
-  font-size: 14px;
-  color: var(--green);
-}
-
-.proxy-hint {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.proxy-curl {
-  font-size: 11px;
-  color: var(--text-dim);
-  background: var(--bg-input);
-  border-radius: 6px;
-  padding: 6px 8px;
-  word-break: break-all;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
