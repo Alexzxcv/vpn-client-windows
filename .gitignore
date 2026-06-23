@@ -1,6 +1,6 @@
-# Binaries
-/bin/*.exe
-/bin/xray*
+# Binaries & build output
+/bin/
+/dist/
 *.exe~
 
 # Go

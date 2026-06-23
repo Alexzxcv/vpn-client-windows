@@ -22,17 +22,36 @@ Reality; без драйверов и прав админа). Полный TUN (
 
 ## Структура
 ```
-cmd/vpnclient/      main: запуск ядра + окна
+cmd/vpnclient/      main: single-instance + control-сервер + трей + окно;
+                    tray.go (меню трея), ui_windows.go (WebView2 window manager),
+                    assets/*.ico (иконки трея, go:embed)
 internal/
   control/          локальный HTTP control-API (см. docs/CONTROL_API.md)
   backend/          клиент к API vpn_service (auth + /vpn/config), refresh на 401
-  xray/             менеджер xray-core: генерация конфига, процесс, health
+  xray/             менеджер xray-core: генерация конфига, процесс, health,
+                    SetExitHandler (детект краша процесса для авто-реконнекта)
+  sysproxy/         системный прокси Windows: Set/Clear + ClearIfOurs
+                    (crash-safe снятие нашего прокси по портам 10800/10801)
+  singleinstance/   именованный мьютекс — запрет второго экземпляра
   device/           стабильный device_id (MachineGuid)
-  app/              склейка: состояние подключения, оркестрация connect/disconnect
+  app/              склейка: состояние подключения, авто-реконнект с backoff,
+                    crash-safe снятие прокси (CleanupStaleProxy/ForceClearProxy)
 frontend/           React-UI (rsbuild); билд -> frontend/dist
 docs/CONTROL_API.md контракт Go-ядро <-> React-UI (источник истины)
+docs/RELEASE_README.md README, кладётся в релизный zip
+.github/workflows/release.yml  релиз по тегу (сборка + xray + zip + GitHub Release)
 bin/                xray.exe кладётся сюда (см. Makefile)
 ```
+
+## Десктоп-поведение (как у настоящего VPN-клиента)
+- **Трей** (`fyne.io/systray`): Connect/Disconnect/Status/Open/Quit; закрытие окна
+  сворачивает в трей, процесс живёт; Quit — полный выход со снятием прокси.
+- **Single-instance**: именованный мьютекс `Global\vpn-client-windows-singleton`.
+- **Crash-safe прокси**: снятие в shutdown/сигналах(SIGINT/SIGTERM)/панике, и на
+  старте `CleanupStaleProxy` снимает наш прокси, оставшийся от прошлого запуска.
+- **Авто-реконнект**: при падении xray в connected — до 5 попыток с backoff.
+- TUN-режим (полный туннель) — отдельная фаза; в `/api/status` есть `mode`
+  (`proxy`|`tun`) с текущим значением `proxy`.
 
 ## Правила
 - Контракт control-API и бэкенда — в `docs/CONTROL_API.md`. Держи код в синхроне с ним.
@@ -48,8 +67,10 @@ bin/                xray.exe кладётся сюда (см. Makefile)
 ## Команды (Makefile; на Windows нужен `choco install make`)
 - `make ui`        — собрать React UI (`frontend/dist`).
 - `make build`     — собрать `bin/vpnclient.exe` (после `make ui`).
+- `make build-gui` — релизная сборка без консольного окна (`-H windowsgui`).
 - `make xray`      — скачать `xray.exe` в `bin/`.
 - `make run`       — запустить ядро локально.
+- `make release VERSION=vX.Y.Z` — ui + build-gui + xray + zip в `dist/`.
 
 ## Связанные репозитории
 - `vpn_service` — бэкенд (Go) + node-agent + VPN-ноды. Источник истины по API/конфигу VLESS.

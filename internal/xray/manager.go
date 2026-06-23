@@ -64,6 +64,14 @@ type Manager struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	cfgPath string
+	// gen увеличивается на каждый Start/Stop. Горутина-наблюдатель за процессом
+	// сравнивает свой gen с текущим, чтобы отличить плановую остановку (Stop)
+	// от аварийного падения и не дёргать onExit при намеренном kill.
+	gen int
+
+	// onExit вызывается, когда xray-процесс завершился НЕ по команде Stop
+	// (т.е. упал сам). Используется app для авто-переподключения.
+	onExit func()
 }
 
 // NewManager creates a Manager. If log is nil the default slog logger is used.
@@ -79,6 +87,15 @@ func (m *Manager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.cmd != nil && m.cmd.Process != nil
+}
+
+// SetExitHandler registers a callback invoked when the xray process exits on
+// its own (a crash), but not when it is stopped via Stop. Pass nil to clear.
+// Safe to call before Start. The callback runs on its own goroutine.
+func (m *Manager) SetExitHandler(fn func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onExit = fn
 }
 
 // Start writes the config to a temp file and launches `xray run -c <file>`,
@@ -133,6 +150,9 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 
 	m.cmd = cmd
 	m.cfgPath = cfgPath
+	m.gen++
+	myGen := m.gen
+	onExit := m.onExit
 
 	go pipeLines(stdout, m.log, "xray.stdout")
 	go pipeLines(stderr, m.log, "xray.stderr")
@@ -142,6 +162,15 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 			m.log.Warn("xray process exited", slog.String("err", err.Error()))
 		} else {
 			m.log.Info("xray process exited")
+		}
+		// Determine whether this was a planned stop or a crash: if our gen is
+		// still the current one, nobody called Stop/Start in the meantime, so
+		// the process died on its own.
+		m.mu.Lock()
+		crashed := m.gen == myGen
+		m.mu.Unlock()
+		if crashed && onExit != nil {
+			onExit()
 		}
 	}()
 
@@ -166,6 +195,8 @@ func (m *Manager) Stop() error {
 }
 
 func (m *Manager) stopLocked() error {
+	// Bump gen so the in-flight Wait goroutine treats this exit as planned.
+	m.gen++
 	var err error
 	if m.cmd != nil && m.cmd.Process != nil {
 		if kerr := m.cmd.Process.Kill(); kerr != nil {

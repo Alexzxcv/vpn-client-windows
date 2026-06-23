@@ -1,0 +1,94 @@
+name: release
+
+# Build a Windows release on tag push (e.g. v0.2.0): builds the UI, the GUI
+# binary, downloads xray.exe, packages a zip and attaches it to a GitHub Release.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      XRAY_VERSION: v1.8.24
+      XRAY_ZIP: Xray-windows-64.zip
+      GOOS: windows
+      GOARCH: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build UI
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify (vet + test)
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build GUI binary
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          go build -ldflags "-s -w -H windowsgui" -o bin/vpnclient.exe ./cmd/vpnclient
+        shell: pwsh
+
+      - name: Download xray.exe
+        run: |
+          $url = "https://github.com/XTLS/Xray-core/releases/download/$env:XRAY_VERSION/$env:XRAY_ZIP"
+          Write-Host "Downloading $url"
+          $tmp = Join-Path $env:RUNNER_TEMP $env:XRAY_ZIP
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $dest = Join-Path (Get-Location) 'bin'
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+          foreach ($e in $archive.Entries) {
+            if ($e.Name -eq 'xray.exe') {
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $dest 'xray.exe'), $true)
+            }
+          }
+          $archive.Dispose()
+          if (-not (Test-Path (Join-Path $dest 'xray.exe'))) { throw "xray.exe not found in archive" }
+        shell: pwsh
+
+      - name: Package zip
+        id: package
+        run: |
+          $ver = "${{ github.ref_name }}"
+          $stage = Join-Path 'dist' 'stage'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'bin/vpnclient.exe' $stage -Force
+          Copy-Item 'bin/xray.exe' $stage -Force
+          Copy-Item 'docs/RELEASE_README.md' (Join-Path $stage 'README.md') -Force
+          $zip = "vpnclient-$ver-windows-amd64.zip"
+          $zipPath = Join-Path 'dist' $zip
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipPath -Force
+          Remove-Item -Recurse -Force $stage
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Packaged $zipPath"
+        shell: pwsh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip_path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

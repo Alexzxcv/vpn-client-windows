@@ -1,5 +1,9 @@
 export type ConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+/** Tunnelling mode. Currently always 'proxy'; 'tun' is reserved for a future
+ *  full WinTUN tunnel. */
+export type ConnMode = 'proxy' | 'tun';
+
 export interface Bootstrap {
   session_token: string;
   api_base: string;
@@ -15,6 +19,8 @@ export interface Status {
   authenticated: boolean;
   connected: boolean;
   state: ConnState;
+  mode: ConnMode;
+  proxy_address?: string;
   location?: StatusLocation;
   since?: string;
   last_error?: string;

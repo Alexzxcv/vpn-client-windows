@@ -8,4 +8,17 @@ import "log/slog"
 // Windows-only, so non-Windows builds run headless.
 func hasUI() bool { return false }
 
-func runUI(log *slog.Logger, title, url string) {}
+// windowManager is a no-op on non-Windows platforms.
+type windowManager struct {
+	log *slog.Logger
+	url string
+}
+
+func newWindowManager(log *slog.Logger, title, url string) *windowManager {
+	_ = title
+	return &windowManager{log: log, url: url}
+}
+
+func (m *windowManager) Open()        {}
+func (m *windowManager) Close()       {}
+func (m *windowManager) IsOpen() bool { return false }

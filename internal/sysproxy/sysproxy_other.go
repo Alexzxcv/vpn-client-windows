@@ -8,3 +8,6 @@ func Set(httpAddr, socksAddr string) error { _, _ = httpAddr, socksAddr; return 
 
 // Clear ничего не делает вне Windows.
 func Clear() error { return nil }
+
+// ClearIfOurs ничего не делает вне Windows.
+func ClearIfOurs(ports ...int) (bool, error) { _ = ports; return false, nil }

@@ -14,7 +14,9 @@ Go-ядро поднимает локальный HTTP-сервер на `127.0.
 ## Эндпоинты (JSON)
 
 - `GET  /api/bootstrap` -> `{ session_token, api_base, version }` — единственный публичный.
-- `GET  /api/status` -> `{ authenticated: bool, connected: bool, state: "disconnected"|"connecting"|"connected"|"error", location?: {id,name}, since?: RFC3339, last_error?: string }`
+- `GET  /api/status` -> `{ authenticated: bool, connected: bool, state: "disconnected"|"connecting"|"connected"|"error", mode: "proxy"|"tun", proxy_address?: string, location?: {id,name}, since?: RFC3339, last_error?: string }`
+  - `mode` — текущий режим туннелирования. Сейчас всегда `"proxy"`; `"tun"` зарезервирован под будущий полный TUN-туннель.
+  - `proxy_address` — адрес локального SOCKS-прокси (`127.0.0.1:<port>`), присутствует только когда системный прокси поднят.
 - `POST /api/auth/login` `{ email, password }` -> `{ ok: true }` (ядро сохраняет токены бэкенда локально, шифрованно/в памяти)
 - `POST /api/auth/logout` -> `204`
 - `GET  /api/me` -> `{ id, email, is_admin }`

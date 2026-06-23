@@ -6,6 +6,7 @@ package sysproxy
 
 import (
 	"fmt"
+	"strings"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -49,6 +50,57 @@ func Clear() error {
 	}
 	refresh()
 	return nil
+}
+
+// ClearIfOurs снимает системный прокси ТОЛЬКО если он сейчас включён и указывает
+// на один из наших локальных портов (ports, напр. 10800/10801). Это нужно при
+// СТАРТЕ ядра: если прошлый запуск упал в connected-состоянии и не снял прокси,
+// мы чистим его — но не трогаем прокси, который пользователь выставил сам.
+// Возвращает true, если прокси был снят.
+func ClearIfOurs(ports ...int) (bool, error) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, inetSettings, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return false, fmt.Errorf("sysproxy: open key: %w", err)
+	}
+	defer k.Close()
+
+	enabled, _, err := k.GetIntegerValue("ProxyEnable")
+	if err != nil {
+		// Значения нет — прокси не настроен, чистить нечего.
+		return false, nil
+	}
+	if enabled == 0 {
+		return false, nil
+	}
+
+	server, _, err := k.GetStringValue("ProxyServer")
+	if err != nil || server == "" {
+		return false, nil
+	}
+	if !mentionsAnyPort(server, ports) {
+		// Прокси чужой (не наш) — не трогаем.
+		return false, nil
+	}
+
+	if err := k.SetDWordValue("ProxyEnable", 0); err != nil {
+		return false, fmt.Errorf("sysproxy: clear ProxyEnable: %w", err)
+	}
+	refresh()
+	return true, nil
+}
+
+// mentionsAnyPort сообщает, упоминает ли строка ProxyServer любой из портов в
+// виде ":<port>" (как `http=127.0.0.1:10801;...`).
+func mentionsAnyPort(proxyServer string, ports []int) bool {
+	for _, p := range ports {
+		if p == 0 {
+			continue
+		}
+		if strings.Contains(proxyServer, fmt.Sprintf(":%d", p)) {
+			return true
+		}
+	}
+	return false
 }
 
 // refresh уведомляет WinINET о смене настроек (применяется без перезапуска).
