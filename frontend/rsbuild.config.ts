@@ -9,7 +9,8 @@ export default defineConfig({
     },
   },
   html: {
-    title: 'VPN Client',
+    title: 'SAPN VPN',
+    favicon: './src/assets/favicon.svg',
   },
   output: {
     // Файлы отдаются с file-сервера ядра как статика (same-origin),

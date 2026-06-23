@@ -1,8 +1,8 @@
 import { observer } from 'mobx-react-lite';
 import type { ReactNode } from 'react';
-import { ShieldHalf } from 'lucide-react';
 import { useAuth } from '@/stores/context';
 import { Eyebrow } from '@/components/ui/card';
+import { Logo } from '@/components/Logo';
 
 export const Layout = observer(function Layout({
   children,
@@ -14,9 +14,9 @@ export const Layout = observer(function Layout({
     <div className="flex h-full min-h-screen flex-col bg-void text-frost">
       <header className="flex items-center justify-between border-b border-hairline bg-slate px-4 py-2.5">
         <span className="flex items-center gap-2">
-          <ShieldHalf className="h-4 w-4 text-ion" strokeWidth={1.5} />
+          <Logo className="h-5 w-5" />
           <span className="font-display text-sm font-semibold tracking-tight">
-            SENTINEL VPN
+            SAPN<span className="text-ion">·</span>VPN
           </span>
         </span>
         {auth.version && (
