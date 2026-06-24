@@ -178,6 +178,7 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 	// Use a background context for the process itself; lifecycle is controlled
 	// via Stop(). ctx only guards the start operation.
 	cmd := exec.Command(bin, "run", "-c", cfgPath)
+	procutil.HideConsole(cmd) // no console window pop-up on connect
 	// Point xray at the bundled geo databases (geoip.dat/geosite.dat) so the
 	// "Russian sites direct" routing (geoip:ru / geosite:ru) resolves. If no
 	// asset dir is found this is a no-op and xray uses its own defaults.

@@ -153,6 +153,7 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 
 	// Process lifecycle is controlled via Stop(); ctx only guards the start op.
 	cmd := exec.Command(bin, "run", "-c", cfgPath)
+	procutil.HideConsole(cmd) // no console window pop-up on connect
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = os.Remove(cfgPath)

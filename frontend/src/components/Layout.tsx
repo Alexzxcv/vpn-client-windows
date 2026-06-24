@@ -23,7 +23,9 @@ export const Layout = observer(function Layout({
         <div className="flex w-full max-w-[440px] flex-col">
           {auth.version && (
             <div className="flex justify-end px-4 pt-2">
-              <Eyebrow className="tabnum">v{auth.version}</Eyebrow>
+              <Eyebrow className="tabnum">
+                v{auth.version.replace(/^v+/i, '')}
+              </Eyebrow>
             </div>
           )}
           <main className="flex-1 p-4 pt-2">{children}</main>
