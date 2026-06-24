@@ -51,6 +51,7 @@ const (
 	swMinimize = 6
 	swRestore  = 9
 
+	wmClose         = 0x0010
 	wmSetIcon       = 0x0080
 	wmNCLButtonDown = 0x00A1
 	wmSysCommand    = 0x0112
@@ -204,14 +205,14 @@ func (m *windowManager) Open() {
 	m.mu.Unlock()
 }
 
-// Close requests the currently open window (if any) to close. Safe to call from
-// another goroutine.
+// Close hides the window to the tray (the process keeps running). It posts
+// WM_CLOSE to the window's own thread, which is cross-thread safe — unlike
+// webview.Terminate(), which posts the quit to the CALLING goroutine's message
+// queue (the HTTP handler), so the window loop never saw it and the X did
+// nothing. WM_CLOSE -> DestroyWindow -> Run() returns; the tray stays.
 func (m *windowManager) Close() {
-	m.mu.Lock()
-	w := m.wv
-	m.mu.Unlock()
-	if w != nil {
-		w.Terminate()
+	if h := m.handle(); h != 0 {
+		procPostMessageW.Call(h, wmClose, 0, 0)
 	}
 }
 
