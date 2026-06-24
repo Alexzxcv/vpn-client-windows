@@ -137,6 +137,7 @@ jobs:
           Copy-Item 'bin/xray.exe' $stage -Force
           Copy-Item 'bin/sing-box.exe' $stage -Force
           Copy-Item 'bin/wintun.dll' $stage -Force
+          Copy-Item 'cmd/vpnclient/assets/app.ico' (Join-Path $stage 'app.ico') -Force
           Copy-Item 'docs/RELEASE_README.md' (Join-Path $stage 'README.md') -Force
           New-Item -ItemType Directory -Force -Path (Join-Path $stage 'ui') | Out-Null
           Copy-Item 'frontend/dist/*' (Join-Path $stage 'ui') -Recurse -Force
