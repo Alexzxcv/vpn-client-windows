@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
+	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
 
@@ -12,10 +13,11 @@ func newTestApp(t *testing.T) *App {
 	t.Helper()
 	be := backend.New("http://localhost:0", nil)
 	xm := xray.NewManager(nil)
-	return New(nil, be, xm, "http://localhost:0", 0, 0)
+	sbm := singbox.NewManager(nil)
+	return New(nil, be, xm, sbm, "http://localhost:0", 0, 0)
 }
 
-func TestStatusModeAlwaysProxy(t *testing.T) {
+func TestStatusModeDefaultsToProxy(t *testing.T) {
 	a := newTestApp(t)
 	st := a.Status()
 	if st.Mode != ModeProxy {
@@ -42,10 +44,46 @@ func TestStatusProxyAddressWhenProxyOn(t *testing.T) {
 	}
 }
 
-// onXrayExit must not start a reconnect when not connected.
-func TestOnXrayExitNoReconnectWhenDisconnected(t *testing.T) {
+func TestParseMode(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    Mode
+		wantErr bool
+	}{
+		{"", ModeProxy, false},
+		{"proxy", ModeProxy, false},
+		{"tun", ModeTUN, false},
+		{"bogus", "", true},
+	}
+	for _, c := range cases {
+		got, err := ParseMode(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Fatalf("ParseMode(%q) expected error", c.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("ParseMode(%q): %v", c.in, err)
+		}
+		if got != c.want {
+			t.Fatalf("ParseMode(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestStatusReportsActualMode(t *testing.T) {
 	a := newTestApp(t)
-	a.onXrayExit()
+	a.setMode(ModeTUN)
+	if got := a.Status().Mode; got != ModeTUN {
+		t.Fatalf("Status mode = %q, want tun", got)
+	}
+}
+
+// onEngineExit must not start a reconnect when not connected.
+func TestOnEngineExitNoReconnectWhenDisconnected(t *testing.T) {
+	a := newTestApp(t)
+	a.onEngineExit()
 	a.mu.Lock()
 	reconnecting := a.reconnecting
 	a.mu.Unlock()
@@ -54,16 +92,16 @@ func TestOnXrayExitNoReconnectWhenDisconnected(t *testing.T) {
 	}
 }
 
-// onXrayExit must not start a reconnect after a user disconnect
+// onEngineExit must not start a reconnect after a user disconnect
 // (wantConnected=false), even if state still reads connected.
-func TestOnXrayExitNoReconnectAfterUserDisconnect(t *testing.T) {
+func TestOnEngineExitNoReconnectAfterUserDisconnect(t *testing.T) {
 	a := newTestApp(t)
 	a.mu.Lock()
 	a.state = StateConnected
 	a.wantConnected = false
 	a.mu.Unlock()
 
-	a.onXrayExit()
+	a.onEngineExit()
 	time.Sleep(50 * time.Millisecond)
 
 	a.mu.Lock()

@@ -1,6 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type { ControlApi } from '@/api/control';
 import type {
+  ConnMode,
   ConnState,
   Location,
   Proxy,
@@ -19,6 +20,11 @@ export class ConnectionStore {
   connected = false;
   lastError: string | null = null;
   since: string | null = null;
+
+  /** Actual active mode reported by the core. */
+  mode: ConnMode = 'proxy';
+  /** Mode the user picked for the next connect. */
+  selectedMode: ConnMode = 'proxy';
 
   locations: Location[] = [];
   selectedServerId: string | null = null;
@@ -52,6 +58,7 @@ export class ConnectionStore {
     this.auth.setAuthenticated(status.authenticated);
     this.state = status.state;
     this.connected = status.connected;
+    this.mode = status.mode;
     this.lastError = status.last_error ?? null;
     this.since = status.since ?? null;
     if (status.location && !this.selectedServerId) {
@@ -105,11 +112,18 @@ export class ConnectionStore {
     this.selectedServerId = id;
   }
 
+  setSelectedMode(mode: ConnMode): void {
+    this.selectedMode = mode;
+  }
+
   async connect(): Promise<void> {
     this.busy = true;
     this.actionError = null;
     try {
-      const res = await this.api.connect(this.selectedServerId ?? undefined);
+      const res = await this.api.connect(
+        this.selectedServerId ?? undefined,
+        this.selectedMode,
+      );
       runInAction(() => {
         this.state = res.state;
       });

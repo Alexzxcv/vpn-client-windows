@@ -1,6 +1,15 @@
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Copy, LogOut, Terminal } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  Globe,
+  LogOut,
+  ShieldAlert,
+  Terminal,
+} from 'lucide-react';
+import type { ConnMode } from '@/api/types';
 import { useConnection, useAuth } from '@/stores/context';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +51,14 @@ export const ConnectPage = observer(function ConnectPage() {
 
   const locked = conn.state === 'connected' || conn.state === 'connecting';
 
+  // TUN requires the core to run as administrator.
+  const tunNeedsElevation = conn.selectedMode === 'tun' && !auth.elevated;
+
+  const modes: { id: ConnMode; label: string }[] = [
+    { id: 'proxy', label: 'Proxy' },
+    { id: 'tun', label: 'Full tunnel' },
+  ];
+
   async function copyCurl() {
     try {
       await navigator.clipboard.writeText(curlHint);
@@ -60,7 +77,14 @@ export const ConnectPage = observer(function ConnectPage() {
       <div className="flex h-full flex-col gap-3">
         {/* status row */}
         <div className="flex items-center justify-between">
-          <StatusBadge state={conn.state} />
+          <div className="flex items-center gap-2">
+            <StatusBadge state={conn.state} />
+            {conn.connected && (
+              <span className="font-mono text-2xs uppercase tracking-eyebrow text-mute">
+                {conn.mode === 'tun' ? 'Full tunnel' : 'Proxy'}
+              </span>
+            )}
+          </div>
           {auth.me && (
             <span className="max-w-[55%] truncate font-mono text-2xs text-mute">
               {auth.me.email}
@@ -78,10 +102,52 @@ export const ConnectPage = observer(function ConnectPage() {
           />
         </Card>
 
+        {/* tunnelling mode toggle */}
+        <div className="flex flex-col gap-1.5">
+          <Eyebrow>Mode</Eyebrow>
+          <div
+            role="radiogroup"
+            aria-label="Tunnelling mode"
+            className="grid grid-cols-2 gap-1 rounded-sm border border-edge bg-void p-1"
+          >
+            {modes.map((m) => {
+              const active = conn.selectedMode === m.id;
+              const Icon = m.id === 'tun' ? Globe : Terminal;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={locked}
+                  onClick={() => conn.setSelectedMode(m.id)}
+                  className={`flex items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 ${
+                    active
+                      ? 'bg-ion text-void'
+                      : 'text-ash hover:bg-graphite hover:text-frost'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+          {tunNeedsElevation && (
+            <div className="flex items-start gap-2 rounded-sm border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-2xs text-warn">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+              <span className="break-words">
+                Полный туннель требует прав администратора. Запусти приложение от
+                имени администратора.
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* connect control */}
         <ConnectButton
           state={conn.state}
-          busy={conn.busy}
+          busy={conn.busy || (tunNeedsElevation && !conn.connected)}
           onConnect={() => void conn.connect()}
           onDisconnect={() => void conn.disconnect()}
         />
@@ -145,7 +211,8 @@ export const ConnectPage = observer(function ConnectPage() {
           />
         </div>
 
-        {/* SOCKS proxy box */}
+        {/* SOCKS proxy box — only relevant in proxy mode */}
+        {conn.selectedMode === 'proxy' && (
         <Card className="flex flex-col gap-2 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-col gap-0.5">
@@ -185,6 +252,7 @@ export const ConnectPage = observer(function ConnectPage() {
             </code>
           </div>
         </Card>
+        )}
 
         {/* logout */}
         <div className="mt-auto flex justify-end pt-1">

@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/device"
+	"github.com/Alexzxcv/vpn-client-windows/internal/elevation"
+	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/sysproxy"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
@@ -72,6 +75,7 @@ type App struct {
 	log     *slog.Logger
 	be      *backend.Client
 	xm      *xray.Manager
+	sbm     *singbox.Manager
 	apiBase string
 
 	socksPort int
@@ -81,20 +85,23 @@ type App struct {
 	// Отключается env VPNCLIENT_NO_SYSPROXY (например для headless-тестов).
 	manageProxy bool
 
-	mu           sync.Mutex
-	state        State
-	location     *LocationInfo
-	since        *time.Time
-	lastError    string
-	proxyOn      bool
+	mu            sync.Mutex
+	state         State
+	mode          Mode // фактический активный режим (proxy|tun)
+	location      *LocationInfo
+	since         *time.Time
+	lastError     string
+	proxyOn       bool
 	lastServerID  *string // последний выбранный сервер (nil = пусть бэкенд выберёт)
+	lastMode      Mode    // режим последнего connect (для авто-реконнекта)
 	wantConnected bool    // пользователь хочет быть подключённым (для авто-реконнекта)
 	reconnecting  bool    // идёт ли сейчас попытка авто-переподключения
 }
 
 // New builds an App. log may be nil. socksPort/httpPort default to
-// DefaultSocksPort/DefaultHTTPPort when zero.
-func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, apiBase string, socksPort, httpPort int) *App {
+// DefaultSocksPort/DefaultHTTPPort when zero. sbm may be nil if the build does
+// not ship the TUN engine (proxy-only); TUN connects then return an error.
+func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Manager, apiBase string, socksPort, httpPort int) *App {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -108,14 +115,21 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, apiBase string,
 		log:         log,
 		be:          be,
 		xm:          xm,
+		sbm:         sbm,
 		apiBase:     apiBase,
 		socksPort:   socksPort,
 		httpPort:    httpPort,
 		manageProxy: os.Getenv("VPNCLIENT_NO_SYSPROXY") == "",
 		state:       StateDisconnected,
+		mode:        ModeProxy,
+		lastMode:    ModeProxy,
 	}
-	// Авто-реконнект: если xray упал, пока мы в connected, пробуем поднять заново.
-	xm.SetExitHandler(a.onXrayExit)
+	// Авто-реконнект: если активный движок упал, пока мы в connected, пробуем
+	// поднять заново. Оба менеджера зовут один и тот же обработник.
+	xm.SetExitHandler(a.onEngineExit)
+	if sbm != nil {
+		sbm.SetExitHandler(a.onEngineExit)
+	}
 	return a
 }
 
@@ -171,7 +185,7 @@ func (a *App) Status() Status {
 		Authenticated: a.be.Authenticated(),
 		Connected:     a.state == StateConnected,
 		State:         a.state,
-		Mode:          ModeProxy, // TUN — будущая фаза
+		Mode:          a.mode,
 		Location:      loc,
 		Since:         since,
 		LastError:     a.lastError,
@@ -204,9 +218,29 @@ func (a *App) setState(s State, loc *LocationInfo, lastErr string) {
 	}
 }
 
-// Connect fetches the VLESS config, generates the xray config, starts xray and
-// waits for the SOCKS port to become ready. serverID may be nil.
-func (a *App) Connect(ctx context.Context, serverID *string) (State, error) {
+// ParseMode normalises a mode string from the API. Empty defaults to proxy.
+// Unknown values return an error.
+func ParseMode(s string) (Mode, error) {
+	switch s {
+	case "", string(ModeProxy):
+		return ModeProxy, nil
+	case string(ModeTUN):
+		return ModeTUN, nil
+	default:
+		return "", fmt.Errorf("unknown mode %q (want proxy|tun)", s)
+	}
+}
+
+// Connect fetches the VLESS config and brings up the tunnel in the requested
+// mode. mode "" or "proxy" runs xray + the system proxy; mode "tun" runs
+// sing-box with a full device-wide TUN (requires administrator rights).
+// serverID may be nil.
+func (a *App) Connect(ctx context.Context, serverID *string, mode string) (State, error) {
+	m, err := ParseMode(mode)
+	if err != nil {
+		return a.fail(err)
+	}
+
 	// Запомним выбор для авто-реконнекта. Делаем копию, чтобы не держать
 	// внешний указатель.
 	a.mu.Lock()
@@ -216,17 +250,30 @@ func (a *App) Connect(ctx context.Context, serverID *string) (State, error) {
 	} else {
 		a.lastServerID = nil
 	}
+	a.lastMode = m
 	a.wantConnected = true
 	a.mu.Unlock()
 
-	return a.connect(ctx, serverID, true)
+	return a.connect(ctx, serverID, m, true)
 }
 
-// connect performs the actual connection work. manual distinguishes a
-// user-initiated connect from an auto-reconnect (the caller is responsible for
-// lastServerID/reconnecting bookkeeping).
-func (a *App) connect(ctx context.Context, serverID *string, manual bool) (State, error) {
+// connect performs the actual connection work in the given mode. manual
+// distinguishes a user-initiated connect from an auto-reconnect (the caller owns
+// lastServerID/lastMode/reconnecting bookkeeping).
+func (a *App) connect(ctx context.Context, serverID *string, mode Mode, manual bool) (State, error) {
 	_ = manual
+
+	// TUN требует прав администратора и наличия TUN-движка в сборке.
+	if mode == ModeTUN {
+		if a.sbm == nil {
+			return a.fail(fmt.Errorf("TUN-режим недоступен в этой сборке"))
+		}
+		if !elevation.IsElevated() {
+			return a.fail(fmt.Errorf("TUN-режим требует запуска от администратора"))
+		}
+	}
+
+	a.setMode(mode)
 	a.setState(StateConnecting, nil, "")
 
 	deviceID, err := device.MachineID()
@@ -246,6 +293,19 @@ func (a *App) connect(ctx context.Context, serverID *string, manual bool) (State
 	cfg, err := a.be.VPNConfig(ctx, deviceID, serverID)
 	if err != nil {
 		return a.fail(fmt.Errorf("fetch vpn config: %w", err))
+	}
+
+	if mode == ModeTUN {
+		return a.connectTUN(ctx, cfg, serverID)
+	}
+	return a.connectProxy(ctx, cfg, serverID)
+}
+
+// connectProxy brings up xray + the Windows system proxy (existing behaviour).
+func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverID *string) (State, error) {
+	// Если был активен TUN-движок (смена режима без disconnect) — остановим его.
+	if a.sbm != nil {
+		_ = a.sbm.Stop()
 	}
 
 	confJSON, err := xray.GenerateConfig(cfg, a.socksPort, a.httpPort)
@@ -278,13 +338,61 @@ func (a *App) connect(ctx context.Context, serverID *string, manual bool) (State
 		}
 	}
 
-	var loc *LocationInfo
-	if serverID != nil {
-		loc = &LocationInfo{ID: *serverID}
-	}
-	a.setState(StateConnected, loc, "")
-	a.log.Info("connected", slog.Int("socks", a.socksPort), slog.Int("http", a.httpPort))
+	a.setState(StateConnected, locFromServerID(serverID), "")
+	a.log.Info("connected", slog.String("mode", string(ModeProxy)),
+		slog.Int("socks", a.socksPort), slog.Int("http", a.httpPort))
 	return StateConnected, nil
+}
+
+// connectTUN brings up sing-box with a full device-wide TUN. No system proxy is
+// set: routing is handled by the TUN interface.
+func (a *App) connectTUN(ctx context.Context, cfg backend.VLESSConfig, serverID *string) (State, error) {
+	// Если был активен proxy-режим (смена режима без disconnect) — остановим xray
+	// и снимем системный прокси, иначе он останется поверх TUN.
+	_ = a.xm.Stop()
+	a.mu.Lock()
+	wasProxy := a.proxyOn
+	a.proxyOn = false
+	a.mu.Unlock()
+	if wasProxy {
+		if err := sysproxy.Clear(); err != nil {
+			a.log.Error("clear system proxy", slog.String("err", err.Error()))
+		}
+	}
+
+	confJSON, err := singbox.GenerateConfig(cfg)
+	if err != nil {
+		return a.fail(fmt.Errorf("generate sing-box config: %w", err))
+	}
+
+	if err := a.sbm.Start(ctx, confJSON); err != nil {
+		return a.fail(fmt.Errorf("start sing-box: %w", err))
+	}
+
+	readyCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := a.sbm.WaitReady(readyCtx); err != nil {
+		_ = a.sbm.Stop()
+		return a.fail(fmt.Errorf("sing-box not ready: %w", err))
+	}
+
+	a.setState(StateConnected, locFromServerID(serverID), "")
+	a.log.Info("connected", slog.String("mode", string(ModeTUN)))
+	return StateConnected, nil
+}
+
+func locFromServerID(serverID *string) *LocationInfo {
+	if serverID == nil {
+		return nil
+	}
+	return &LocationInfo{ID: *serverID}
+}
+
+// setMode records the active tunnelling mode.
+func (a *App) setMode(m Mode) {
+	a.mu.Lock()
+	a.mode = m
+	a.mu.Unlock()
 }
 
 func (a *App) fail(err error) (State, error) {
@@ -310,18 +418,28 @@ func (a *App) Disconnect(ctx context.Context) error {
 		}
 	}
 
-	err := a.xm.Stop()
+	// Останавливаем оба движка: активным мог быть xray (proxy) или sing-box (tun).
+	var errs []error
+	if err := a.xm.Stop(); err != nil {
+		errs = append(errs, err)
+	}
+	if a.sbm != nil {
+		if err := a.sbm.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	a.setState(StateDisconnected, nil, "")
 	a.log.Info("disconnected")
-	if err != nil {
-		return fmt.Errorf("disconnect: %w", err)
+	if len(errs) > 0 {
+		return fmt.Errorf("disconnect: %w", errors.Join(errs...))
 	}
 	return nil
 }
 
-// onXrayExit вызывается менеджером xray, когда процесс упал сам (не по Stop).
-// Если мы в connected-состоянии — запускаем авто-переподключение с backoff.
-func (a *App) onXrayExit() {
+// onEngineExit вызывается менеджером движка (xray или sing-box), когда процесс
+// упал сам (не по Stop). Если мы в connected-состоянии — запускаем
+// авто-переподключение с backoff в том же режиме.
+func (a *App) onEngineExit() {
 	a.mu.Lock()
 	// Реагируем только если пользователь хочет быть подключённым и мы реально
 	// были connected (а не в процессе остановки/ошибки).
@@ -334,7 +452,7 @@ func (a *App) onXrayExit() {
 		return
 	}
 
-	a.log.Warn("xray exited unexpectedly; starting auto-reconnect")
+	a.log.Warn("tunnel engine exited unexpectedly; starting auto-reconnect")
 	go a.reconnectLoop()
 }
 
@@ -354,6 +472,7 @@ func (a *App) reconnectLoop() {
 		// Пользователь мог нажать disconnect/logout, пока мы ждали.
 		a.mu.Lock()
 		serverID := a.lastServerID
+		mode := a.lastMode
 		canceled := !a.wantConnected
 		a.mu.Unlock()
 		if canceled {
@@ -375,7 +494,7 @@ func (a *App) reconnectLoop() {
 			slog.Int("attempt", attempt), slog.Int("max", reconnectMaxAttempts))
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		state, err := a.reconnectOnce(ctx, serverID)
+		state, err := a.reconnectOnce(ctx, serverID, mode)
 		cancel()
 		if err == nil && state == StateConnected {
 			a.log.Info("auto-reconnect succeeded", slog.Int("attempt", attempt))
@@ -394,10 +513,10 @@ func (a *App) reconnectLoop() {
 	a.log.Error("auto-reconnect gave up")
 }
 
-// reconnectOnce performs a single connect attempt without touching lastServerID
-// or the reconnecting flag (the loop owns those).
-func (a *App) reconnectOnce(ctx context.Context, serverID *string) (State, error) {
-	return a.connect(ctx, serverID, false)
+// reconnectOnce performs a single connect attempt without touching lastServerID,
+// lastMode or the reconnecting flag (the loop owns those).
+func (a *App) reconnectOnce(ctx context.Context, serverID *string, mode Mode) (State, error) {
+	return a.connect(ctx, serverID, mode, false)
 }
 
 func errString(err error) string {

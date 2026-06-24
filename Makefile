@@ -12,13 +12,22 @@ XRAY_VERSION ?= v1.8.24
 # safe default on modern Windows. Switch with `make xray XRAY_ZIP=Xray-windows-32.zip`.
 XRAY_ZIP ?= Xray-windows-64.zip
 
+# sing-box release (TUN engine). Override: `make singbox SINGBOX_VERSION=1.11.15`.
+# NOTE: the asset name uses the version WITHOUT the leading "v".
+SINGBOX_VERSION ?= 1.11.15
+SINGBOX_ZIP     ?= sing-box-$(SINGBOX_VERSION)-windows-amd64.zip
+
+# wintun (TUN driver DLL) required by sing-box TUN on Windows. From wintun.net.
+WINTUN_VERSION ?= 0.14.1
+WINTUN_ZIP     ?= wintun-$(WINTUN_VERSION).zip
+
 # Release version (used in the zip name). Override: `make release VERSION=v0.2.0`.
 VERSION ?= dev
 
 # Build flags: GUI subsystem so no console window pops up; strip debug info.
 LDFLAGS := -s -w -H windowsgui
 
-.PHONY: ui build build-gui run xray tidy vet test release dist
+.PHONY: ui build build-gui run xray singbox wintun tidy vet test release dist
 
 ui:
 	cd frontend && npm install && npm run build
@@ -52,6 +61,43 @@ xray:
 		$archive.Dispose(); Remove-Item $$tmp; \
 		Write-Host 'xray.exe -> bin/xray.exe'"
 
+# Download sing-box.exe (TUN engine) into bin/ from the official GitHub release.
+# The asset is a zip with sing-box.exe inside a versioned subfolder.
+singbox:
+	powershell -NoProfile -ExecutionPolicy Bypass -Command "\
+		$ErrorActionPreference='Stop'; \
+		$ver='$(SINGBOX_VERSION)'; $zip='$(SINGBOX_ZIP)'; \
+		$url=\"https://github.com/SagerNet/sing-box/releases/download/v$$ver/$$zip\"; \
+		New-Item -ItemType Directory -Force -Path bin | Out-Null; \
+		$tmp=Join-Path $$env:TEMP $$zip; \
+		Write-Host \"Downloading $$url\"; \
+		Invoke-WebRequest -Uri $$url -OutFile $$tmp; \
+		Add-Type -AssemblyName System.IO.Compression.FileSystem; \
+		$dest=Join-Path (Get-Location) 'bin'; \
+		$archive=[System.IO.Compression.ZipFile]::OpenRead($$tmp); \
+		foreach ($$e in $$archive.Entries) { if ($$e.Name -eq 'sing-box.exe') { \
+			[System.IO.Compression.ZipFileExtensions]::ExtractToFile($$e, (Join-Path $$dest 'sing-box.exe'), $$true) } }; \
+		$archive.Dispose(); Remove-Item $$tmp; \
+		Write-Host 'sing-box.exe -> bin/sing-box.exe'"
+
+# Download wintun.dll (amd64) into bin/ from wintun.net. Required for TUN.
+wintun:
+	powershell -NoProfile -ExecutionPolicy Bypass -Command "\
+		$ErrorActionPreference='Stop'; \
+		$zip='$(WINTUN_ZIP)'; \
+		$url=\"https://www.wintun.net/builds/$$zip\"; \
+		New-Item -ItemType Directory -Force -Path bin | Out-Null; \
+		$tmp=Join-Path $$env:TEMP $$zip; \
+		Write-Host \"Downloading $$url\"; \
+		Invoke-WebRequest -Uri $$url -OutFile $$tmp; \
+		Add-Type -AssemblyName System.IO.Compression.FileSystem; \
+		$dest=Join-Path (Get-Location) 'bin'; \
+		$archive=[System.IO.Compression.ZipFile]::OpenRead($$tmp); \
+		foreach ($$e in $$archive.Entries) { if ($$e.FullName -eq 'wintun/bin/amd64/wintun.dll') { \
+			[System.IO.Compression.ZipFileExtensions]::ExtractToFile($$e, (Join-Path $$dest 'wintun.dll'), $$true) } }; \
+		$archive.Dispose(); Remove-Item $$tmp; \
+		Write-Host 'wintun.dll -> bin/wintun.dll'"
+
 tidy:
 	go mod tidy
 
@@ -61,10 +107,11 @@ vet:
 test:
 	go test ./...
 
-# release: build UI + GUI binary + fetch xray, then package a distributable zip
-# into dist/vpnclient-$(VERSION)-windows-amd64.zip containing vpnclient.exe,
-# xray.exe and a short README. Run on Windows (or a box with PowerShell).
-release: ui build-gui xray dist
+# release: build UI + GUI binary + fetch xray + sing-box + wintun, then package a
+# distributable zip into dist/vpnclient-$(VERSION)-windows-amd64.zip containing
+# vpnclient.exe, xray.exe, sing-box.exe, wintun.dll and a short README.
+# Run on Windows (or a box with PowerShell).
+release: ui build-gui xray singbox wintun dist
 
 # dist: assemble bin/ artefacts (built by `release`) into a zip under dist/.
 dist:
@@ -75,6 +122,8 @@ dist:
 		New-Item -ItemType Directory -Force -Path $$stage | Out-Null; \
 		Copy-Item 'bin/vpnclient.exe' $$stage -Force; \
 		Copy-Item 'bin/xray.exe' $$stage -Force; \
+		Copy-Item 'bin/sing-box.exe' $$stage -Force; \
+		Copy-Item 'bin/wintun.dll' $$stage -Force; \
 		Copy-Item 'docs/RELEASE_README.md' (Join-Path $$stage 'README.md') -Force; \
 		$zip=Join-Path 'dist' (\"vpnclient-$$ver-windows-amd64.zip\"); \
 		if (Test-Path $$zip) { Remove-Item $$zip -Force }; \

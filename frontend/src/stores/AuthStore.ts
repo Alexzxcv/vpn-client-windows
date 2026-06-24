@@ -8,6 +8,8 @@ export class AuthStore {
   bootstrapped = false;
   bootstrapError: string | null = null;
   version = '';
+  /** Whether the core runs as administrator (TUN mode availability). */
+  elevated = false;
 
   authenticated = false;
   me: Me | null = null;
@@ -27,6 +29,7 @@ export class AuthStore {
       this.api.setSessionToken(data.session_token);
       runInAction(() => {
         this.version = data.version;
+        this.elevated = data.elevated;
         this.bootstrapped = true;
         this.bootstrapError = null;
       });

@@ -16,6 +16,8 @@ jobs:
     env:
       XRAY_VERSION: v1.8.24
       XRAY_ZIP: Xray-windows-64.zip
+      SINGBOX_VERSION: "1.11.15"
+      WINTUN_VERSION: "0.14.1"
       GOOS: windows
       GOARCH: amd64
 
@@ -69,6 +71,44 @@ jobs:
           if (-not (Test-Path (Join-Path $dest 'xray.exe'))) { throw "xray.exe not found in archive" }
         shell: pwsh
 
+      - name: Download sing-box.exe (TUN engine)
+        run: |
+          $zip = "sing-box-$env:SINGBOX_VERSION-windows-amd64.zip"
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v$env:SINGBOX_VERSION/$zip"
+          Write-Host "Downloading $url"
+          $tmp = Join-Path $env:RUNNER_TEMP $zip
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $dest = Join-Path (Get-Location) 'bin'
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+          foreach ($e in $archive.Entries) {
+            if ($e.Name -eq 'sing-box.exe') {
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $dest 'sing-box.exe'), $true)
+            }
+          }
+          $archive.Dispose()
+          if (-not (Test-Path (Join-Path $dest 'sing-box.exe'))) { throw "sing-box.exe not found in archive" }
+        shell: pwsh
+
+      - name: Download wintun.dll
+        run: |
+          $zip = "wintun-$env:WINTUN_VERSION.zip"
+          $url = "https://www.wintun.net/builds/$zip"
+          Write-Host "Downloading $url"
+          $tmp = Join-Path $env:RUNNER_TEMP $zip
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $dest = Join-Path (Get-Location) 'bin'
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+          foreach ($e in $archive.Entries) {
+            if ($e.FullName -eq 'wintun/bin/amd64/wintun.dll') {
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $dest 'wintun.dll'), $true)
+            }
+          }
+          $archive.Dispose()
+          if (-not (Test-Path (Join-Path $dest 'wintun.dll'))) { throw "wintun.dll not found in archive" }
+        shell: pwsh
+
       - name: Package zip
         id: package
         run: |
@@ -77,6 +117,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item 'bin/vpnclient.exe' $stage -Force
           Copy-Item 'bin/xray.exe' $stage -Force
+          Copy-Item 'bin/sing-box.exe' $stage -Force
+          Copy-Item 'bin/wintun.dll' $stage -Force
           Copy-Item 'docs/RELEASE_README.md' (Join-Path $stage 'README.md') -Force
           $zip = "vpnclient-$ver-windows-amd64.zip"
           $zipPath = Join-Path 'dist' $zip

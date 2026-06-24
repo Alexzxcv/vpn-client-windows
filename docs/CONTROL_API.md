@@ -13,18 +13,24 @@ Go-ядро поднимает локальный HTTP-сервер на `127.0.
 
 ## Эндпоинты (JSON)
 
-- `GET  /api/bootstrap` -> `{ session_token, api_base, version }` — единственный публичный.
+- `GET  /api/bootstrap` -> `{ session_token, api_base, version, elevated }` — единственный публичный.
+  - `elevated` — запущено ли ядро от администратора. TUN-режим требует `elevated:true`; UI прячет/предупреждает иначе.
 - `GET  /api/status` -> `{ authenticated: bool, connected: bool, state: "disconnected"|"connecting"|"connected"|"error", mode: "proxy"|"tun", proxy_address?: string, location?: {id,name}, since?: RFC3339, last_error?: string }`
-  - `mode` — текущий режим туннелирования. Сейчас всегда `"proxy"`; `"tun"` зарезервирован под будущий полный TUN-туннель.
-  - `proxy_address` — адрес локального SOCKS-прокси (`127.0.0.1:<port>`), присутствует только когда системный прокси поднят.
+  - `mode` — фактический активный режим туннелирования: `"proxy"` (xray + системный прокси) или `"tun"` (sing-box, полный туннель на всё устройство).
+  - `proxy_address` — адрес локального SOCKS-прокси (`127.0.0.1:<port>`), присутствует только когда системный прокси поднят (proxy-режим).
 - `POST /api/auth/login` `{ email, password }` -> `{ ok: true }` (ядро сохраняет токены бэкенда локально, шифрованно/в памяти)
 - `POST /api/auth/logout` -> `204`
 - `GET  /api/me` -> `{ id, email, is_admin }`
 - `GET  /api/locations` -> `[{ id, name, location }]` (прокси бэкенд `/vpn/locations`)
-- `POST /api/connect` `{ server_id?: string }` -> `{ state }` — ядро: тянет `/vpn/config`,
-  генерит конфиг xray (SOCKS inbound 127.0.0.1:10808 + VLESS Reality outbound), запускает
-  xray, ждёт готовности.
-- `POST /api/disconnect` -> `{ state }` — останавливает xray.
+- `POST /api/connect` `{ server_id?: string, mode?: "proxy"|"tun" }` -> `{ state }` —
+  `mode` по умолчанию `"proxy"`. Ядро тянет `/vpn/config` и поднимает туннель:
+  - `proxy`: генерит конфиг xray (SOCKS+HTTP inbound + VLESS Reality outbound), запускает
+    xray, ждёт готовности SOCKS-порта, ставит системный прокси Windows.
+  - `tun`: требует прав администратора (иначе `{ state:"error", error:"TUN-режим требует
+    запуска от администратора" }`). Генерит конфиг sing-box (TUN inbound `sapn-tun` +
+    VLESS Reality outbound), запускает sing-box, ждёт готовности. Системный прокси НЕ ставится.
+- `POST /api/disconnect` -> `{ state }` — останавливает активный движок (xray или sing-box)
+  и снимает системный прокси, если он был поднят.
 - `GET  /api/proxy` -> `{ socks: "127.0.0.1:10808", http?: "127.0.0.1:10809" }` — адрес
   локального прокси для проверки (curl --socks5 ...).
 

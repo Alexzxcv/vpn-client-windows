@@ -24,6 +24,7 @@ import (
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/app"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
+	"github.com/Alexzxcv/vpn-client-windows/internal/elevation"
 )
 
 // version reported via /api/bootstrap.
@@ -219,6 +220,8 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		"session_token": s.token,
 		"api_base":      s.app.APIBase(),
 		"version":       version,
+		// elevated сообщает UI, доступен ли TUN-режим без перезапуска от админа.
+		"elevated": elevation.IsElevated(),
 	})
 }
 
@@ -271,15 +274,18 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ServerID *string `json:"server_id"`
+		Mode     string  `json:"mode"`
 	}
-	// Body is optional.
+	// Body is optional; mode defaults to proxy.
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
-	state, err := s.app.Connect(r.Context(), body.ServerID)
+	state, err := s.app.Connect(r.Context(), body.ServerID, body.Mode)
 	if err != nil {
+		// Surface the actual reason (e.g. "TUN requires administrator") so the UI
+		// can show it. No secrets are present in connect errors.
 		writeJSON(w, http.StatusBadGateway, map[string]any{
 			"state": string(state),
-			"error": "connect failed",
+			"error": err.Error(),
 		})
 		return
 	}

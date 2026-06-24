@@ -1,13 +1,15 @@
 export type ConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-/** Tunnelling mode. Currently always 'proxy'; 'tun' is reserved for a future
- *  full WinTUN tunnel. */
+/** Tunnelling mode. 'proxy' = local SOCKS/HTTP proxy via xray; 'tun' = full
+ *  device-wide tunnel via sing-box (requires administrator rights). */
 export type ConnMode = 'proxy' | 'tun';
 
 export interface Bootstrap {
   session_token: string;
   api_base: string;
   version: string;
+  /** Whether the core runs elevated (administrator). TUN mode needs this. */
+  elevated: boolean;
 }
 
 export interface StatusLocation {

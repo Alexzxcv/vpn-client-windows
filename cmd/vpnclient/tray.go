@@ -116,7 +116,8 @@ func (t *trayController) openWindow() {
 func (t *trayController) doConnect() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := t.app.Connect(ctx, nil); err != nil {
+	// Tray quick-connect uses the default (proxy) mode — no admin required.
+	if _, err := t.app.Connect(ctx, nil, ""); err != nil {
 		t.log.Error("tray connect", slog.String("err", err.Error()))
 	}
 }

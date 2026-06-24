@@ -15,6 +15,7 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/app"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/control"
+	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singleinstance"
 	"github.com/Alexzxcv/vpn-client-windows/internal/tokenstore"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
@@ -52,7 +53,8 @@ func main() {
 	}
 	be.OnTokens = tokenstore.Save
 	xm := xray.NewManager(log)
-	application := app.New(log, be, xm, apiBase, 0, 0)
+	sbm := singbox.NewManager(log) // TUN-движок (полный туннель)
+	application := app.New(log, be, xm, sbm, apiBase, 0, 0)
 
 	// Crash-safe recovery: if a previous run died while connected, our system
 	// proxy may still be set — remove it before doing anything else.

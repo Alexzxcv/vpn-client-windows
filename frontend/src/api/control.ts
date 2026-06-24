@@ -1,6 +1,7 @@
 import type {
   Bootstrap,
   ConnectResult,
+  ConnMode,
   Location,
   Me,
   Proxy,
@@ -120,10 +121,13 @@ export class ControlApi {
     return this.request<Location[]>('/api/locations');
   }
 
-  connect(serverId?: string): Promise<ConnectResult> {
+  connect(serverId?: string, mode?: ConnMode): Promise<ConnectResult> {
+    const body: { server_id?: string; mode?: ConnMode } = {};
+    if (serverId) body.server_id = serverId;
+    if (mode) body.mode = mode;
     return this.request<ConnectResult>('/api/connect', {
       method: 'POST',
-      body: serverId ? { server_id: serverId } : {},
+      body,
     });
   }
 
