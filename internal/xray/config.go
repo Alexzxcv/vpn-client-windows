@@ -9,13 +9,20 @@ import (
 	"fmt"
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
+	"github.com/Alexzxcv/vpn-client-windows/internal/routing"
 )
 
-// GenerateConfig builds an xray config JSON with:
+// GenerateConfig builds an xray config with no split-tunnel rules.
+func GenerateConfig(cfg backend.VLESSConfig, socksPort, httpPort int) ([]byte, error) {
+	return GenerateConfigWith(cfg, socksPort, httpPort, routing.Options{})
+}
+
+// GenerateConfigWith builds an xray config JSON with:
 //   - a SOCKS inbound on 127.0.0.1:<socksPort> (UDP enabled),
 //   - an HTTP inbound on 127.0.0.1:<httpPort>,
-//   - a VLESS + Reality outbound to the given server.
-func GenerateConfig(cfg backend.VLESSConfig, socksPort, httpPort int) ([]byte, error) {
+//   - a VLESS + Reality outbound to the given server,
+//   - optional split-tunnel "direct" routing rules from opts.
+func GenerateConfigWith(cfg backend.VLESSConfig, socksPort, httpPort int, opts routing.Options) ([]byte, error) {
 	if cfg.Host == "" || cfg.Port == 0 || cfg.UUID == "" {
 		return nil, fmt.Errorf("incomplete vless config (host/port/uuid required)")
 	}
@@ -85,9 +92,66 @@ func GenerateConfig(cfg backend.VLESSConfig, socksPort, httpPort int) ([]byte, e
 		},
 	}
 
+	if rules := xrayRoutingRules(opts); len(rules) > 0 {
+		conf["routing"] = map[string]any{
+			"domainStrategy": "IPIfNonMatch",
+			"rules":          rules,
+		}
+	}
+
 	b, err := json.MarshalIndent(conf, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal xray config: %w", err)
 	}
 	return b, nil
+}
+
+// xrayRoutingRules builds xray routing rules that send split-tunnel traffic to
+// the "direct" outbound. Order: explicit user domains/IPs first, then the
+// optional geo (geosite:ru / geoip:ru) rule.
+func xrayRoutingRules(opts routing.Options) []any {
+	var rules []any
+
+	if len(opts.Domains) > 0 {
+		// xray domain matching: a leading "." in our list means "suffix", which
+		// xray expresses as "domain:<suffix>" (without the dot).
+		domains := make([]string, 0, len(opts.Domains))
+		for _, d := range opts.Domains {
+			if len(d) > 1 && d[0] == '.' {
+				domains = append(domains, "domain:"+d[1:])
+			} else {
+				domains = append(domains, d)
+			}
+		}
+		rules = append(rules, map[string]any{
+			"type":        "field",
+			"domain":      domains,
+			"outboundTag": "direct",
+		})
+	}
+
+	if len(opts.IPCIDRs) > 0 {
+		rules = append(rules, map[string]any{
+			"type":        "field",
+			"ip":          opts.IPCIDRs,
+			"outboundTag": "direct",
+		})
+	}
+
+	if opts.RussiaDirect {
+		rules = append(rules,
+			map[string]any{
+				"type":        "field",
+				"domain":      []string{"geosite:category-ru", "geosite:ru"},
+				"outboundTag": "direct",
+			},
+			map[string]any{
+				"type":        "field",
+				"ip":          []string{"geoip:ru"},
+				"outboundTag": "direct",
+			},
+		)
+	}
+
+	return rules
 }

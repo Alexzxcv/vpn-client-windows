@@ -48,6 +48,19 @@ type VLESSConfig struct {
 	ShortID     string
 	SNI         string
 	Fingerprint string
+	// ExpiresAt is when this credential expires (zero if the backend did not
+	// provide it). The app uses it to schedule a background refresh.
+	ExpiresAt time.Time
+}
+
+// DeviceSigner produces the per-request device-identity headers for
+// /vpn/config. It is implemented by internal/deviceid.Identity. Kept as an
+// interface so backend does not import deviceid (avoids a cycle and keeps the
+// crypto in one place).
+type DeviceSigner interface {
+	// SignedHeaders returns device_id, unix-second timestamp and the base64
+	// Ed25519 signature over "<device_id>.<timestamp>".
+	SignedHeaders(now time.Time) (deviceID, timestamp, signature string, err error)
 }
 
 // User is the authenticated account (GET /me).
@@ -206,22 +219,41 @@ type vpnConfigResp struct {
 	ShortID     string `json:"short_id"`
 	SNI         string `json:"sni"`
 	Fingerprint string `json:"fingerprint"`
+	ExpiresAt   string `json:"expires_at"` // RFC3339
 }
 
-// VPNConfig fetches the VLESS Reality config for the given device and optional
-// server. serverID may be nil to let the backend pick.
-func (c *Client) VPNConfig(ctx context.Context, deviceID string, serverID *string) (VLESSConfig, error) {
-	body := map[string]any{"device_id": deviceID}
+// VPNConfig fetches the VLESS Reality config for the optional server. The
+// request is authenticated with the device-identity headers produced by signer
+// (X-Device-Id / X-Device-Timestamp / X-Device-Signature). serverID may be nil
+// to let the backend pick.
+func (c *Client) VPNConfig(ctx context.Context, signer DeviceSigner, serverID *string) (VLESSConfig, error) {
+	deviceID, ts, sig, err := signer.SignedHeaders(time.Now())
+	if err != nil {
+		return VLESSConfig{}, fmt.Errorf("vpn config: sign request: %w", err)
+	}
+	headers := map[string]string{
+		"X-Device-Id":        deviceID,
+		"X-Device-Timestamp": ts,
+		"X-Device-Signature": sig,
+	}
+
+	body := map[string]any{}
 	if serverID != nil {
 		body["server_id"] = *serverID
 	}
 	var r vpnConfigResp
-	if err := c.doJSON(ctx, http.MethodPost, "/vpn/config", body, &r, true); err != nil {
+	if err := c.doJSONHeaders(ctx, http.MethodPost, "/vpn/config", body, &r, true, headers); err != nil {
 		return VLESSConfig{}, fmt.Errorf("vpn config: %w", err)
 	}
 	host := r.Host
 	if host == "" {
 		host = r.Server // backend contract names this field "server"
+	}
+	var expires time.Time
+	if r.ExpiresAt != "" {
+		if t, perr := time.Parse(time.RFC3339, r.ExpiresAt); perr == nil {
+			expires = t
+		}
 	}
 	return VLESSConfig{
 		Host:        host,
@@ -233,35 +265,59 @@ func (c *Client) VPNConfig(ctx context.Context, deviceID string, serverID *strin
 		ShortID:     r.ShortID,
 		SNI:         r.SNI,
 		Fingerprint: r.Fingerprint,
+		ExpiresAt:   expires,
 	}, nil
 }
 
-// RegisterDevice привязывает текущее устройство (идемпотентный re-attach).
-// Обязательно перед /vpn/config: бэкенд проверяет, что устройство разрешено.
-func (c *Client) RegisterDevice(ctx context.Context, deviceID, name, platform string) error {
-	body := map[string]string{"device_id": deviceID, "name": name, "platform": platform}
-	if err := c.doJSON(ctx, http.MethodPost, "/devices", body, nil, true); err != nil {
-		return fmt.Errorf("register device: %w", err)
+// registerDeviceResp is the POST /devices response.
+type registerDeviceResp struct {
+	DeviceID string `json:"device_id"`
+}
+
+// RegisterDevice registers this device's public key (idempotent by public_key)
+// and returns the backend-assigned device_id. mac is optional telemetry and may
+// be empty. Required before /vpn/config.
+func (c *Client) RegisterDevice(ctx context.Context, publicKeyB64, name, platform, mac string) (string, error) {
+	body := map[string]string{
+		"public_key": publicKeyB64,
+		"name":       name,
+		"platform":   platform,
 	}
-	return nil
+	if mac != "" {
+		body["mac"] = mac
+	}
+	var out registerDeviceResp
+	if err := c.doJSON(ctx, http.MethodPost, "/devices", body, &out, true); err != nil {
+		return "", fmt.Errorf("register device: %w", err)
+	}
+	if out.DeviceID == "" {
+		return "", errors.New("register device: empty device_id in response")
+	}
+	return out.DeviceID, nil
 }
 
 // doJSON performs an HTTP request, optionally attaching the bearer token and
 // retrying once after a refresh on a 401.
 func (c *Client) doJSON(ctx context.Context, method, path string, in, out any, auth bool) error {
-	err := c.doOnce(ctx, method, path, in, out, auth)
+	return c.doJSONHeaders(ctx, method, path, in, out, auth, nil)
+}
+
+// doJSONHeaders is doJSON with extra request headers (e.g. device-identity
+// headers). The headers are re-sent on the post-refresh retry.
+func (c *Client) doJSONHeaders(ctx context.Context, method, path string, in, out any, auth bool, headers map[string]string) error {
+	err := c.doOnce(ctx, method, path, in, out, auth, headers)
 	if auth && errors.Is(err, errUnauthorized) {
 		if rerr := c.refreshTokens(ctx); rerr != nil {
 			return fmt.Errorf("after 401: %w", rerr)
 		}
-		return c.doOnce(ctx, method, path, in, out, auth)
+		return c.doOnce(ctx, method, path, in, out, auth, headers)
 	}
 	return err
 }
 
 var errUnauthorized = errors.New("unauthorized (401)")
 
-func (c *Client) doOnce(ctx context.Context, method, path string, in, out any, auth bool) error {
+func (c *Client) doOnce(ctx context.Context, method, path string, in, out any, auth bool, headers map[string]string) error {
 	var bodyRdr io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -279,6 +335,9 @@ func (c *Client) doOnce(ctx context.Context, method, path string, in, out any, a
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	if auth {
 		c.mu.RLock()
 		at := c.access

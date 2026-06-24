@@ -2,6 +2,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { LoginPage } from '@/pages/LoginPage';
 import { ConnectPage } from '@/pages/ConnectPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 import { ProtectedRoute } from './ProtectedRoute';
 
 export function AppRouter() {
@@ -15,6 +16,14 @@ export function AppRouter() {
             element={
               <ProtectedRoute>
                 <ConnectPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
               </ProtectedRoute>
             }
           />

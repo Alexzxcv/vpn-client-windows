@@ -5,6 +5,7 @@ import type {
   Location,
   Me,
   Proxy,
+  Settings,
   Status,
 } from './types';
 
@@ -137,6 +138,17 @@ export class ControlApi {
 
   proxy(): Promise<Proxy> {
     return this.request<Proxy>('/api/proxy');
+  }
+
+  getSettings(): Promise<Settings> {
+    return this.request<Settings>('/api/settings');
+  }
+
+  saveSettings(s: Settings): Promise<Settings> {
+    return this.request<Settings>('/api/settings', {
+      method: 'PUT',
+      body: s,
+    });
   }
 }
 

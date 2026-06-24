@@ -9,6 +9,7 @@ import (
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/app"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
+	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
@@ -18,7 +19,7 @@ func newTestServer(t *testing.T) *Server {
 	be := backend.New("http://localhost:8080", nil)
 	xm := xray.NewManager(nil)
 	sbm := singbox.NewManager(nil)
-	application := app.New(nil, be, xm, sbm, "http://localhost:8080", 0, 0)
+	application := app.New(nil, be, xm, sbm, nil, settings.Load(), "http://localhost:8080")
 	s, err := New(nil, application, "")
 	if err != nil {
 		t.Fatalf("New: %v", err)

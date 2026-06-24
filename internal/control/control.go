@@ -25,6 +25,7 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/app"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/elevation"
+	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 )
 
 // version reported via /api/bootstrap.
@@ -145,6 +146,8 @@ func (s *Server) router() http.Handler {
 			authed.Post("/connect", s.handleConnect)
 			authed.Post("/disconnect", s.handleDisconnect)
 			authed.Get("/proxy", s.handleProxy)
+			authed.Get("/settings", s.handleGetSettings)
+			authed.Put("/settings", s.handlePutSettings)
 		})
 	})
 
@@ -308,6 +311,24 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		"socks": fmt.Sprintf("127.0.0.1:%d", s.app.SocksPort()),
 		"http":  fmt.Sprintf("127.0.0.1:%d", s.app.HTTPPort()),
 	})
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.app.Settings())
+}
+
+func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
+	var body settings.Settings
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	saved, err := s.app.SaveSettings(body)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "save settings failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
 }
 
 // ----- static UI -----

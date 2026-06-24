@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
+	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
@@ -14,7 +15,8 @@ func newTestApp(t *testing.T) *App {
 	be := backend.New("http://localhost:0", nil)
 	xm := xray.NewManager(nil)
 	sbm := singbox.NewManager(nil)
-	return New(nil, be, xm, sbm, "http://localhost:0", 0, 0)
+	set := settings.Load()
+	return New(nil, be, xm, sbm, nil, set, "http://localhost:0")
 }
 
 func TestStatusModeDefaultsToProxy(t *testing.T) {

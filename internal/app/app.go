@@ -12,8 +12,11 @@ import (
 	"time"
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
-	"github.com/Alexzxcv/vpn-client-windows/internal/device"
+	"github.com/Alexzxcv/vpn-client-windows/internal/deviceid"
 	"github.com/Alexzxcv/vpn-client-windows/internal/elevation"
+	"github.com/Alexzxcv/vpn-client-windows/internal/killswitch"
+	"github.com/Alexzxcv/vpn-client-windows/internal/routing"
+	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/sysproxy"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
@@ -52,6 +55,13 @@ const (
 	reconnectMaxBackoff  = 30 * time.Second
 )
 
+// Credential auto-refresh tuning: re-fetch /vpn/config when the credential is
+// within refreshLeadTime of expiry; the timer wakes every refreshCheckEvery.
+const (
+	refreshLeadTime   = 12 * time.Hour
+	refreshCheckEvery = 30 * time.Minute
+)
+
 // LocationInfo is the minimal current-location descriptor for Status.
 type LocationInfo struct {
 	ID   string `json:"id"`
@@ -76,6 +86,9 @@ type App struct {
 	be      *backend.Client
 	xm      *xray.Manager
 	sbm     *singbox.Manager
+	id      *deviceid.Identity
+	set     *settings.Store
+	ks      *killswitch.Guard
 	apiBase string
 
 	socksPort int
@@ -92,33 +105,38 @@ type App struct {
 	since         *time.Time
 	lastError     string
 	proxyOn       bool
-	lastServerID  *string // последний выбранный сервер (nil = пусть бэкенд выберёт)
-	lastMode      Mode    // режим последнего connect (для авто-реконнекта)
-	wantConnected bool    // пользователь хочет быть подключённым (для авто-реконнекта)
-	reconnecting  bool    // идёт ли сейчас попытка авто-переподключения
+	lastServerID  *string   // последний выбранный сервер (nil = пусть бэкенд выберёт)
+	lastMode      Mode      // режим последнего connect (для авто-реконнекта)
+	wantConnected bool      // пользователь хочет быть подключённым (для авто-реконнекта)
+	reconnecting  bool      // идёт ли сейчас попытка авто-переподключения
+	expiresAt     time.Time // expiry текущего vpn-credential (для авто-рефреша)
+	refreshing    bool      // идёт ли сейчас фоновый рефреш credential
+
+	refreshStop chan struct{} // закрывается для остановки фонового таймера рефреша
 }
 
 // New builds an App. log may be nil. socksPort/httpPort default to
 // DefaultSocksPort/DefaultHTTPPort when zero. sbm may be nil if the build does
 // not ship the TUN engine (proxy-only); TUN connects then return an error.
-func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Manager, apiBase string, socksPort, httpPort int) *App {
+func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Manager, id *deviceid.Identity, set *settings.Store, apiBase string) *App {
 	if log == nil {
 		log = slog.Default()
 	}
-	if socksPort == 0 {
-		socksPort = DefaultSocksPort
+	if set == nil {
+		set = settings.Load()
 	}
-	if httpPort == 0 {
-		httpPort = DefaultHTTPPort
-	}
+	cur := set.Get()
 	a := &App{
 		log:         log,
 		be:          be,
 		xm:          xm,
 		sbm:         sbm,
+		id:          id,
+		set:         set,
+		ks:          killswitch.New(log),
 		apiBase:     apiBase,
-		socksPort:   socksPort,
-		httpPort:    httpPort,
+		socksPort:   cur.SocksPort,
+		httpPort:    cur.HTTPPort,
 		manageProxy: os.Getenv("VPNCLIENT_NO_SYSPROXY") == "",
 		state:       StateDisconnected,
 		mode:        ModeProxy,
@@ -139,6 +157,35 @@ func (a *App) APIBase() string { return a.apiBase }
 // SocksPort / HTTPPort expose the configured local proxy ports.
 func (a *App) SocksPort() int { return a.socksPort }
 func (a *App) HTTPPort() int  { return a.httpPort }
+
+// routeOptions builds the split-tunnel options from the current settings.
+func (a *App) routeOptions() routing.Options {
+	s := a.set.Get()
+	domains, ipcidrs := routing.SplitList(s.DirectList)
+	return routing.Options{
+		Domains:      domains,
+		IPCIDRs:      ipcidrs,
+		RussiaDirect: s.RussiaDirect,
+	}
+}
+
+// Settings returns the current persisted settings.
+func (a *App) Settings() settings.Settings { return a.set.Get() }
+
+// SaveSettings validates and persists new settings. Port changes take effect on
+// the next connect; routing/kill-switch changes likewise. Returns the stored
+// (normalised) settings.
+func (a *App) SaveSettings(s settings.Settings) (settings.Settings, error) {
+	if err := a.set.Save(s); err != nil {
+		return settings.Settings{}, err
+	}
+	cur := a.set.Get()
+	a.mu.Lock()
+	a.socksPort = cur.SocksPort
+	a.httpPort = cur.HTTPPort
+	a.mu.Unlock()
+	return cur, nil
+}
 
 // Login authenticates against the backend.
 func (a *App) Login(ctx context.Context, email, password string) error {
@@ -276,29 +323,39 @@ func (a *App) connect(ctx context.Context, serverID *string, mode Mode, manual b
 	a.setMode(mode)
 	a.setState(StateConnecting, nil, "")
 
-	deviceID, err := device.MachineID()
-	if err != nil {
-		return a.fail(fmt.Errorf("device id: %w", err))
+	if err := a.ensureRegistered(ctx); err != nil {
+		return a.fail(err)
 	}
 
-	// Привязываем устройство (идемпотентно) — бэкенд требует этого до /vpn/config.
-	hostname, _ := os.Hostname()
-	if hostname == "" {
-		hostname = "windows-client"
-	}
-	if err := a.be.RegisterDevice(ctx, deviceID, hostname, "windows"); err != nil {
-		return a.fail(fmt.Errorf("register device: %w", err))
-	}
-
-	cfg, err := a.be.VPNConfig(ctx, deviceID, serverID)
+	cfg, err := a.be.VPNConfig(ctx, a.id, serverID)
 	if err != nil {
 		return a.fail(fmt.Errorf("fetch vpn config: %w", err))
 	}
+	a.setExpiry(cfg.ExpiresAt)
 
 	if mode == ModeTUN {
 		return a.connectTUN(ctx, cfg, serverID)
 	}
 	return a.connectProxy(ctx, cfg, serverID)
+}
+
+// ensureRegistered registers the device public key with the backend (idempotent
+// by public_key) and records the returned device_id on the Identity. A no-op
+// once a device_id is already known.
+func (a *App) ensureRegistered(ctx context.Context) error {
+	if a.id.DeviceID() != "" {
+		return nil
+	}
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "windows-client"
+	}
+	deviceID, err := a.be.RegisterDevice(ctx, a.id.PublicKeyB64(), hostname, "windows", "")
+	if err != nil {
+		return fmt.Errorf("register device: %w", err)
+	}
+	a.id.SetDeviceID(deviceID)
+	return nil
 }
 
 // connectProxy brings up xray + the Windows system proxy (existing behaviour).
@@ -307,8 +364,15 @@ func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverI
 	if a.sbm != nil {
 		_ = a.sbm.Stop()
 	}
+	// Proxy mode does not use the (TUN) kill-switch firewall lockdown; if it was
+	// engaged from a previous TUN session, tear it down so proxy traffic flows.
+	if a.ks.Engaged() {
+		if err := a.ks.Disengage(); err != nil {
+			a.log.Error("disengage kill-switch for proxy mode", slog.String("err", err.Error()))
+		}
+	}
 
-	confJSON, err := xray.GenerateConfig(cfg, a.socksPort, a.httpPort)
+	confJSON, err := xray.GenerateConfigWith(cfg, a.socksPort, a.httpPort, a.routeOptions())
 	if err != nil {
 		return a.fail(fmt.Errorf("generate xray config: %w", err))
 	}
@@ -339,6 +403,7 @@ func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverI
 	}
 
 	a.setState(StateConnected, locFromServerID(serverID), "")
+	a.startRefreshTimer()
 	a.log.Info("connected", slog.String("mode", string(ModeProxy)),
 		slog.Int("socks", a.socksPort), slog.Int("http", a.httpPort))
 	return StateConnected, nil
@@ -360,7 +425,7 @@ func (a *App) connectTUN(ctx context.Context, cfg backend.VLESSConfig, serverID 
 		}
 	}
 
-	confJSON, err := singbox.GenerateConfig(cfg)
+	confJSON, err := singbox.GenerateConfigWith(cfg, a.routeOptions())
 	if err != nil {
 		return a.fail(fmt.Errorf("generate sing-box config: %w", err))
 	}
@@ -376,7 +441,22 @@ func (a *App) connectTUN(ctx context.Context, cfg backend.VLESSConfig, serverID 
 		return a.fail(fmt.Errorf("sing-box not ready: %w", err))
 	}
 
+	// Kill-switch: once the TUN is up, lock egress to the tunnel interface so a
+	// tunnel drop cannot leak traffic. Engaged best-effort; failure is logged
+	// but does not fail the connect.
+	if a.killSwitchEnabled() {
+		if err := a.ks.Engage(killswitch.Params{
+			ServerHost:   cfg.Host,
+			ServerPort:   cfg.Port,
+			TunInterface: singbox.TUNInterfaceName(),
+			AllowLAN:     true,
+		}); err != nil {
+			a.log.Warn("kill-switch engage failed (continuing)", slog.String("err", err.Error()))
+		}
+	}
+
 	a.setState(StateConnected, locFromServerID(serverID), "")
+	a.startRefreshTimer()
 	a.log.Info("connected", slog.String("mode", string(ModeTUN)))
 	return StateConnected, nil
 }
@@ -395,6 +475,130 @@ func (a *App) setMode(m Mode) {
 	a.mu.Unlock()
 }
 
+// killSwitchEnabled reports whether the kill-switch is on per current settings.
+func (a *App) killSwitchEnabled() bool {
+	s := a.set.Get()
+	return s.KillSwitch != nil && *s.KillSwitch
+}
+
+// setExpiry records the credential expiry for the auto-refresh timer.
+func (a *App) setExpiry(t time.Time) {
+	a.mu.Lock()
+	a.expiresAt = t
+	a.mu.Unlock()
+}
+
+// startRefreshTimer launches (once) the background credential auto-refresh
+// timer. It re-fetches /vpn/config when the credential is within
+// refreshLeadTime of expiry and quietly reloads the running engine without
+// tearing the tunnel state down. Idempotent: a second call is a no-op while a
+// timer is already running.
+func (a *App) startRefreshTimer() {
+	a.mu.Lock()
+	if a.refreshStop != nil {
+		a.mu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	a.refreshStop = stop
+	a.mu.Unlock()
+
+	go a.refreshLoop(stop)
+}
+
+// stopRefreshTimer stops the background refresh timer if running.
+func (a *App) stopRefreshTimer() {
+	a.mu.Lock()
+	if a.refreshStop != nil {
+		close(a.refreshStop)
+		a.refreshStop = nil
+	}
+	a.mu.Unlock()
+}
+
+func (a *App) refreshLoop(stop <-chan struct{}) {
+	ticker := time.NewTicker(refreshCheckEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			a.maybeRefresh()
+		}
+	}
+}
+
+// maybeRefresh re-fetches the VLESS config if the current credential is close to
+// expiry, and hot-reloads the active engine. The tunnel is not torn down on
+// failure; we just keep the existing one until the next tick.
+func (a *App) maybeRefresh() {
+	a.mu.Lock()
+	connected := a.state == StateConnected
+	exp := a.expiresAt
+	serverID := a.lastServerID
+	mode := a.lastMode
+	already := a.refreshing
+	a.mu.Unlock()
+
+	if !connected || already || exp.IsZero() {
+		return
+	}
+	if time.Until(exp) > refreshLeadTime {
+		return
+	}
+
+	a.mu.Lock()
+	a.refreshing = true
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.refreshing = false
+		a.mu.Unlock()
+	}()
+
+	a.log.Info("vpn credential nearing expiry; refreshing")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cfg, err := a.be.VPNConfig(ctx, a.id, serverID)
+	if err != nil {
+		a.log.Warn("credential refresh failed; will retry", slog.String("err", err.Error()))
+		return
+	}
+	a.setExpiry(cfg.ExpiresAt)
+
+	// Hot-reload the active engine with the fresh config. This briefly bounces
+	// the engine process but keeps wantConnected/state intact so the tunnel
+	// comes straight back; onEngineExit is suppressed because Stop bumps gen.
+	switch mode {
+	case ModeTUN:
+		if a.sbm == nil {
+			return
+		}
+		confJSON, gerr := singbox.GenerateConfigWith(cfg, a.routeOptions())
+		if gerr != nil {
+			a.log.Warn("refresh: generate sing-box config", slog.String("err", gerr.Error()))
+			return
+		}
+		if serr := a.sbm.Start(ctx, confJSON); serr != nil {
+			a.log.Warn("refresh: restart sing-box", slog.String("err", serr.Error()))
+			return
+		}
+	default:
+		confJSON, gerr := xray.GenerateConfigWith(cfg, a.socksPort, a.httpPort, a.routeOptions())
+		if gerr != nil {
+			a.log.Warn("refresh: generate xray config", slog.String("err", gerr.Error()))
+			return
+		}
+		if serr := a.xm.Start(ctx, confJSON); serr != nil {
+			a.log.Warn("refresh: restart xray", slog.String("err", serr.Error()))
+			return
+		}
+	}
+	a.log.Info("vpn credential refreshed")
+}
+
 func (a *App) fail(err error) (State, error) {
 	a.log.Error("connect failed", slog.String("err", err.Error()))
 	a.setState(StateError, nil, err.Error())
@@ -406,11 +610,20 @@ func (a *App) fail(err error) (State, error) {
 func (a *App) Disconnect(ctx context.Context) error {
 	_ = ctx
 
+	a.stopRefreshTimer()
+
+	// Kill-switch must come down BEFORE we report disconnected so the user is
+	// never left with blocked egress and no tunnel.
+	if err := a.ks.Disengage(); err != nil {
+		a.log.Error("kill-switch disengage", slog.String("err", err.Error()))
+	}
+
 	a.mu.Lock()
 	wasProxy := a.proxyOn
 	a.proxyOn = false
 	a.wantConnected = false // явный disconnect — не переподключаемся
 	a.lastServerID = nil
+	a.expiresAt = time.Time{}
 	a.mu.Unlock()
 	if wasProxy {
 		if err := sysproxy.Clear(); err != nil {
@@ -530,6 +743,12 @@ func errString(err error) string {
 // long-held состояния — пригодно для defer/обработчиков сигналов и паники,
 // чтобы прокси не «завис» при некорректном завершении. Идемпотентно.
 func (a *App) ForceClearProxy() {
+	// Crash-safe: tear the kill-switch down so we never leave egress blocked
+	// after an abnormal exit. Idempotent.
+	if err := a.ks.Disengage(); err != nil {
+		a.log.Error("force disengage kill-switch", slog.String("err", err.Error()))
+	}
+
 	a.mu.Lock()
 	wasProxy := a.proxyOn
 	a.proxyOn = false
@@ -542,6 +761,14 @@ func (a *App) ForceClearProxy() {
 		return
 	}
 	a.log.Info("system proxy cleared (crash-safe)")
+}
+
+// CleanupStaleKillSwitch removes any kill-switch firewall rules left over from a
+// previous (crashed) run. Call at startup before the first connect.
+func (a *App) CleanupStaleKillSwitch() {
+	if err := a.ks.CleanupStale(); err != nil {
+		a.log.Warn("cleanup stale kill-switch", slog.String("err", err.Error()))
+	}
 }
 
 // CleanupStaleProxy снимает наш системный прокси, если он остался включённым с

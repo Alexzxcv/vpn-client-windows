@@ -15,6 +15,8 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/app"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/control"
+	"github.com/Alexzxcv/vpn-client-windows/internal/deviceid"
+	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singleinstance"
 	"github.com/Alexzxcv/vpn-client-windows/internal/tokenstore"
@@ -54,11 +56,22 @@ func main() {
 	be.OnTokens = tokenstore.Save
 	xm := xray.NewManager(log)
 	sbm := singbox.NewManager(log) // TUN-движок (полный туннель)
-	application := app.New(log, be, xm, sbm, apiBase, 0, 0)
+
+	// Device crypto identity: Ed25519 keypair, private key sealed via DPAPI.
+	id, err := deviceid.Load()
+	if err != nil {
+		log.Error("load device identity", slog.String("err", err.Error()))
+		os.Exit(1)
+	}
+
+	set := settings.Load()
+	application := app.New(log, be, xm, sbm, id, set, apiBase)
 
 	// Crash-safe recovery: if a previous run died while connected, our system
-	// proxy may still be set — remove it before doing anything else.
+	// proxy and/or kill-switch firewall rules may still be active — remove them
+	// before doing anything else.
 	application.CleanupStaleProxy()
+	application.CleanupStaleKillSwitch()
 
 	srv, err := control.New(log, application, "")
 	if err != nil {

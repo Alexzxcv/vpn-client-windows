@@ -61,10 +61,10 @@ func TestGenerateConfig(t *testing.T) {
 		t.Fatalf("mtu = %d, want %d", got, tunMTU)
 	}
 
-	// --- outbounds: vless + direct ---
+	// --- outbounds: vless + direct + block ---
 	outbounds := parsed["outbounds"].([]any)
-	if len(outbounds) != 2 {
-		t.Fatalf("expected 2 outbounds, got %d", len(outbounds))
+	if len(outbounds) != 3 {
+		t.Fatalf("expected 3 outbounds, got %d", len(outbounds))
 	}
 	vless := outbounds[0].(map[string]any)
 	if vless["type"] != "vless" {

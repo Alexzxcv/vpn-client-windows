@@ -1,11 +1,13 @@
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   Check,
   Copy,
   Globe,
   LogOut,
+  Settings as SettingsIcon,
   ShieldAlert,
   Terminal,
 } from 'lucide-react';
@@ -37,6 +39,7 @@ import { mockPingSeries, mockTrafficSeries } from '@/mock/metrics';
 export const ConnectPage = observer(function ConnectPage() {
   const conn = useConnection();
   const auth = useAuth();
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
   const socks = conn.proxy?.socks ?? '127.0.0.1:10800';
@@ -254,8 +257,21 @@ export const ConnectPage = observer(function ConnectPage() {
         </Card>
         )}
 
-        {/* logout */}
-        <div className="mt-auto flex justify-end pt-1">
+        {/* footer actions */}
+        <div className="mt-auto flex justify-end gap-1 pt-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/settings')}
+                aria-label="Settings"
+              >
+                <SettingsIcon className="h-4 w-4" strokeWidth={1.5} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Settings</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

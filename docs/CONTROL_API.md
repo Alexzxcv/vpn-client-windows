@@ -33,13 +33,26 @@ Go-ядро поднимает локальный HTTP-сервер на `127.0.
   и снимает системный прокси, если он был поднят.
 - `GET  /api/proxy` -> `{ socks: "127.0.0.1:10808", http?: "127.0.0.1:10809" }` — адрес
   локального прокси для проверки (curl --socks5 ...).
+- `GET  /api/settings` -> `{ socks_port, http_port, kill_switch, direct_list[], russia_direct }` —
+  локальные настройки клиента.
+- `PUT  /api/settings` `{ socks_port, http_port, kill_switch?, direct_list?, russia_direct? }` ->
+  сохранённые (нормализованные) настройки. Порты применяются на следующем connect;
+  split-tunnel/kill-switch — тоже. `direct_list` — список «напрямую»: домены (`.ru`,
+  `example.com`) и/или IP/CIDR (`10.0.0.0/8`).
 
-## device_id
-Стабильный идентификатор машины: SHA-256 от Windows `MachineGuid`
-(`HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`). Ядро шлёт его в бэкенд при
-`/vpn/config` и привязке устройства.
+## Идентичность устройства (криптопривязка)
+Ed25519 keypair генерится при первом запуске; приватный ключ хранится рядом с токенами
+(`%APPDATA%/sapn-vpn/device_key`), запечатанный через Windows DPAPI (никогда в открытом
+виде). Регистрация: `POST /devices { public_key (base64 std, 32 байта), name, platform,
+mac? }` -> `{ device_id }` (идемпотентно по public_key). Запрос конфига подписывается:
+заголовки `X-Device-Id`, `X-Device-Timestamp` (unix sec), `X-Device-Signature` =
+base64(Ed25519_sign(privkey, "<device_id>.<timestamp>")). Приватный ключ, device_id и
+подпись никогда не логируются.
 
 ## Бэкенд-контракт (vpn_service), используемый ядром
 - `POST /auth/login` -> `{ access_token, refresh_token }`; refresh на 401.
 - `GET  /vpn/locations` -> `[{ id, name, location }]`
-- `POST /vpn/config` `{ device_id, server_id? }` -> `{ server(host), port, uuid, security:"reality", flow, public_key, short_id, sni, fingerprint }`
+- `POST /devices` `{ public_key, name, platform, mac? }` -> `{ device_id }` (JWT, идемпотентно).
+- `POST /vpn/config` `{ server_id? }` + headers `X-Device-Id`/`X-Device-Timestamp`/`X-Device-Signature`
+  -> `{ server(host), port, uuid, security:"reality", flow, public_key, short_id, sni, fingerprint, expires_at }`.
+  Ядро авто-рефрешит конфиг, когда до `expires_at` остаётся < 12ч (фоновый таймер, без разрыва туннеля).

@@ -48,3 +48,15 @@ export interface Me {
 export interface ConnectResult {
   state: ConnState;
 }
+
+/** User-editable local client settings (mirrors internal/settings.Settings). */
+export interface Settings {
+  socks_port: number;
+  http_port: number;
+  /** Block all egress if the tunnel drops. Defaults on for TUN. */
+  kill_switch?: boolean;
+  /** Manual split-tunnel direct list: domains (".ru") and/or IP CIDRs. */
+  direct_list?: string[];
+  /** Route Russian sites/IPs directly via geosite:ru / geoip:ru. */
+  russia_direct?: boolean;
+}

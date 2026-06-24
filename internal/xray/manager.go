@@ -57,6 +57,29 @@ func fileExists(p string) bool {
 	return err == nil && !st.IsDir()
 }
 
+// assetDir resolves the directory holding geoip.dat/geosite.dat for xray. It
+// checks XRAY_LOCATION_ASSET, then a "geo" dir next to the binary/executable,
+// then the binary/executable dir itself. Returns "" if none contain geoip.dat.
+func assetDir(bin string) string {
+	if env := os.Getenv("XRAY_LOCATION_ASSET"); env != "" {
+		return env
+	}
+	var dirs []string
+	if d := filepath.Dir(bin); d != "" {
+		dirs = append(dirs, filepath.Join(d, "geo"), d)
+	}
+	if exe, err := os.Executable(); err == nil {
+		d := filepath.Dir(exe)
+		dirs = append(dirs, filepath.Join(d, "geo"), d)
+	}
+	for _, d := range dirs {
+		if fileExists(filepath.Join(d, "geoip.dat")) {
+			return d
+		}
+	}
+	return ""
+}
+
 // Manager runs a single xray-core subprocess.
 type Manager struct {
 	log *slog.Logger
@@ -132,6 +155,12 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 	// Use a background context for the process itself; lifecycle is controlled
 	// via Stop(). ctx only guards the start operation.
 	cmd := exec.Command(bin, "run", "-c", cfgPath)
+	// Point xray at the bundled geo databases (geoip.dat/geosite.dat) so the
+	// "Russian sites direct" routing (geoip:ru / geosite:ru) resolves. If no
+	// asset dir is found this is a no-op and xray uses its own defaults.
+	if assetDir := assetDir(bin); assetDir != "" {
+		cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+assetDir)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = os.Remove(cfgPath)

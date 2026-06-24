@@ -30,3 +30,7 @@ export function useAuth() {
 export function useConnection() {
   return useStores().connection;
 }
+
+export function useSettings() {
+  return useStores().settings;
+}
