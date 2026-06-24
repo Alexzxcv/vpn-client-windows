@@ -264,46 +264,23 @@ type LocationView struct {
 	PingMs int `json:"ping_ms,omitempty"`
 }
 
-// Locations returns available locations annotated with the user's measured ping.
-// It (re-)measures ping to every node concurrently — using a short cache so a
-// burst of requests does not re-probe — then returns the locations with PingMs
-// filled in. Measurement failures leave PingMs at 0 (UI falls back to LatencyMs).
+// Locations returns the available locations for the UI list.
+//
+// We deliberately do NOT client-measure the user's ping here. A local TCP-connect
+// probe is unreliable on a VPN client: a leftover/half-up TUN adapter (whose
+// userspace netstack terminates TCP locally) makes every node read ~1 ms, and a
+// proxy session does the same. That produced repeated "1 ms everywhere" reports.
+// Instead we surface the backend's control-plane→node RTT (LatencyMs), which is a
+// stable, real number in every connection state — the behaviour users had before
+// the client-ping experiment. PingMs is left 0 so the UI falls back to LatencyMs.
 func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
 	locs, err := a.be.Locations(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	targets := make([]pingTarget, 0, len(locs))
-	for _, l := range locs {
-		targets = append(targets, pingTarget{id: l.ID, host: l.Host, port: l.Port})
-	}
-	// Only probe the user's real ping while DISCONNECTED. Once a tunnel is up —
-	// especially TUN, whose userspace netstack terminates TCP locally — a
-	// TCP-connect probe returns ~0 ms for every node, which is meaningless (it
-	// used to read "1 ms everywhere"). While connected we keep the last
-	// pre-connect measurement; nodes never measured fall back to server LatencyMs.
-	a.mu.Lock()
-	disconnected := a.state == StateDisconnected
-	a.mu.Unlock()
-	if disconnected {
-		// Bound the whole measurement batch so a slow/unreachable node cannot
-		// stall the locations response.
-		mctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		a.ping.Refresh(mctx, targets)
-		cancel()
-	}
-
 	views := make([]LocationView, len(locs))
 	for i, l := range locs {
-		// Only surface the client-measured ping while DISCONNECTED. Once a tunnel
-		// is up the measurement is meaningless (local TCP termination), so report
-		// 0 and let the UI fall back to the server LatencyMs (a real number).
-		pm := 0
-		if disconnected {
-			pm = a.ping.PingMs(l.ID)
-		}
-		views[i] = LocationView{Location: l, PingMs: pm}
+		views[i] = LocationView{Location: l}
 	}
 	return views, nil
 }
@@ -436,20 +413,14 @@ func (a *App) Connect(ctx context.Context, serverID *string, mode string) (State
 		return a.fail(err)
 	}
 
-	// "Auto (best)" — это nil server_id: бэкенд сам выберет лучшую ноду по
+	// "Auto (best)" — это nil server_id: бэкенд сам выберёт лучшую ноду по
 	// latency/health. Сентинел AutoServerID из UI приводим к nil тут, чтобы вся
-	// нижележащая логика (включая авто-реконнект) работала единообразно.
-	// "Auto (best)": выбираем ноду с МИНИМАЛЬНЫМ измеренным ПОЛЬЗОВАТЕЛЬСКИМ
-	// пингом (TCP RTT клиент->нода) и передаём её server_id в /vpn/config.
-	// Если измерить ни одну ноду не удалось — фолбэк на прежнее поведение:
-	// nil server_id, бэкенд выбирает сам.
+	// нижележащая логика (включая авто-реконнект) работала единообразно. Раньше мы
+	// пытались выбрать ноду по клиентскому TCP-пингу, но он недостоверен на VPN-
+	// клиенте (залипший TUN/прокси терминирует TCP локально → ~1ms у всех), так
+	// что доверяем выбор бэкенду.
 	if serverID != nil && *serverID == AutoServerID {
-		if best := a.bestServerByPing(ctx); best != "" {
-			a.log.Info("auto-select node by measured ping", slog.String("server_id", best))
-			serverID = &best
-		} else {
-			serverID = nil
-		}
+		serverID = nil
 	}
 
 	// Запомним выбор для авто-реконнекта. Делаем копию, чтобы не держать
