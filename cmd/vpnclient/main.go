@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -152,8 +153,12 @@ func main() {
 		tray.RequestQuit() // unblocks tray.Run() -> we shutdown below
 	}()
 
-	// Open the window once at startup so the app is visible on first run.
-	tray.openWindow()
+	// Open the window once at startup so the app is visible on first run —
+	// unless launched with --minimized (autostart-at-login), which starts the
+	// app straight into the tray.
+	if !slices.Contains(os.Args[1:], "--minimized") {
+		tray.openWindow()
+	}
 
 	// tray.Run blocks until the user picks Quit (or RequestQuit from a signal).
 	tray.Run()

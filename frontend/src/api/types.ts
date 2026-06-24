@@ -101,4 +101,6 @@ export interface Settings {
   direct_list?: string[];
   /** Route Russian sites/IPs directly via geosite:ru / geoip:ru. */
   russia_direct?: boolean;
+  /** Launch the client at Windows login (starts minimized to tray). */
+  autostart?: boolean;
 }

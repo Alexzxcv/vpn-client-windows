@@ -1,9 +1,11 @@
 import { Loader2, Power } from 'lucide-react';
-import type { ConnState } from '@/api/types';
+import type { ConnMode, ConnState } from '@/api/types';
 import { cn } from '@/lib/utils';
 
 interface Props {
   state: ConnState;
+  /** Active tunnelling mode — colours the connected state (proxy = green, tun = blue). */
+  mode?: ConnMode;
   busy: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -17,10 +19,11 @@ const LABEL: Record<ConnState, string> = {
 };
 
 /** Strict round connect control with state coloring + connected glow. */
-export function ConnectButton({ state, busy, onConnect, onDisconnect }: Props) {
+export function ConnectButton({ state, mode, busy, onConnect, onDisconnect }: Props) {
   const isConnected = state === 'connected';
   const isConnecting = state === 'connecting';
   const disabled = busy || isConnecting;
+  const tun = mode === 'tun';
 
   return (
     <button
@@ -34,7 +37,8 @@ export function ConnectButton({ state, busy, onConnect, onDisconnect }: Props) {
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ion focus-visible:ring-offset-2 focus-visible:ring-offset-void',
         'disabled:cursor-default disabled:opacity-80',
         !disabled && 'hover:scale-[1.03]',
-        isConnected && 'border-ok text-ok shadow-ion-glow',
+        isConnected && 'shadow-ion-glow',
+        isConnected && (tun ? 'border-ion text-ion' : 'border-ok text-ok'),
         isConnecting && 'border-warn text-warn',
         state === 'error' && 'border-alert text-alert',
         state === 'disconnected' && 'border-ion text-ion',

@@ -145,7 +145,11 @@ export const ConnectPage = observer(function ConnectPage() {
           <div className="flex items-center gap-2">
             <StatusBadge state={conn.state} />
             {conn.connected && (
-              <span className="font-mono text-2xs uppercase tracking-eyebrow text-mute">
+              <span
+                className={`font-mono text-2xs uppercase tracking-eyebrow ${
+                  conn.mode === 'tun' ? 'text-ion' : 'text-ok'
+                }`}
+              >
                 {conn.mode === 'tun' ? 'Full tunnel' : 'Proxy'}
               </span>
             )}
@@ -212,6 +216,7 @@ export const ConnectPage = observer(function ConnectPage() {
         {/* connect control */}
         <ConnectButton
           state={conn.state}
+          mode={conn.mode}
           busy={conn.busy || (tunNeedsElevation && !conn.connected)}
           onConnect={() => void conn.connect()}
           onDisconnect={() => void conn.disconnect()}

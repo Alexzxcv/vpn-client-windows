@@ -46,6 +46,7 @@ export const SettingsPage = observer(function SettingsPage() {
   const [http, setHttp] = useState('10801');
   const [killSwitch, setKillSwitch] = useState(true);
   const [russiaDirect, setRussiaDirect] = useState(false);
+  const [autostart, setAutostart] = useState(false);
   const [directList, setDirectList] = useState('');
 
   useEffect(() => {
@@ -59,6 +60,7 @@ export const SettingsPage = observer(function SettingsPage() {
     setHttp(String(s.http_port));
     setKillSwitch(s.kill_switch ?? true);
     setRussiaDirect(s.russia_direct ?? false);
+    setAutostart(s.autostart ?? false);
     setDirectList((s.direct_list ?? []).join('\n'));
   }, [settings.current]);
 
@@ -68,6 +70,7 @@ export const SettingsPage = observer(function SettingsPage() {
       http_port: Number(http) || 10801,
       kill_switch: killSwitch,
       russia_direct: russiaDirect,
+      autostart: autostart,
       direct_list: directList
         .split('\n')
         .map((l) => l.trim())
@@ -114,6 +117,17 @@ export const SettingsPage = observer(function SettingsPage() {
         <span className="text-2xs text-mute">
           Applied on the next connect.
         </span>
+      </Card>
+
+      {/* autostart */}
+      <Card className="flex items-center justify-between gap-3 p-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm text-frost">Start with Windows</span>
+          <span className="text-2xs text-mute">
+            Launch automatically at login (starts minimized to the tray).
+          </span>
+        </div>
+        <Toggle checked={autostart} onChange={setAutostart} />
       </Card>
 
       {/* kill-switch */}

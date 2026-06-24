@@ -37,6 +37,10 @@ type Settings struct {
 
 	// RussiaDirect routes Russian sites/IPs directly via geosite:ru / geoip:ru.
 	RussiaDirect bool `json:"russia_direct,omitempty"`
+
+	// Autostart launches the client at Windows login (registry Run key). The
+	// registry is the source of truth; this mirrors it for the UI.
+	Autostart bool `json:"autostart,omitempty"`
 }
 
 // Default returns a Settings populated with defaults.

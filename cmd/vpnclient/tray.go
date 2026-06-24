@@ -58,8 +58,12 @@ func (t *trayController) RequestQuit() {
 
 func (t *trayController) onReady() {
 	systray.SetIcon(iconDisconnected)
-	systray.SetTitle("VPN Client")
-	systray.SetTooltip("VPN Client — disconnected")
+	systray.SetTitle("SAPN VPN")
+	systray.SetTooltip("SAPN VPN — disconnected")
+
+	// Standard tray behaviour: left-click opens/restores the window; right-click
+	// is left at the default (shows the context menu).
+	systray.SetOnTapped(func() { t.openWindow() })
 
 	t.mStatus = systray.AddMenuItem("Status: disconnected", "Current connection status")
 	t.mStatus.Disable()
@@ -150,25 +154,25 @@ func (t *trayController) applyStatus() {
 	switch st.State {
 	case app.StateConnected:
 		systray.SetIcon(iconConnected)
-		systray.SetTooltip("VPN Client — connected")
+		systray.SetTooltip("SAPN VPN —connected")
 		t.mStatus.SetTitle("Status: connected")
 		t.mConnect.Disable()
 		t.mDisconnect.Enable()
 	case app.StateConnecting:
 		systray.SetIcon(iconDisconnected)
-		systray.SetTooltip("VPN Client — connecting…")
+		systray.SetTooltip("SAPN VPN —connecting…")
 		t.mStatus.SetTitle("Status: connecting…")
 		t.mConnect.Disable()
 		t.mDisconnect.Enable()
 	case app.StateError:
 		systray.SetIcon(iconDisconnected)
-		systray.SetTooltip("VPN Client — error")
+		systray.SetTooltip("SAPN VPN —error")
 		t.mStatus.SetTitle("Status: error")
 		t.mConnect.Enable()
 		t.mDisconnect.Disable()
 	default: // disconnected
 		systray.SetIcon(iconDisconnected)
-		systray.SetTooltip("VPN Client — disconnected")
+		systray.SetTooltip("SAPN VPN —disconnected")
 		t.mStatus.SetTitle("Status: disconnected")
 		t.mConnect.Enable()
 		t.mDisconnect.Disable()

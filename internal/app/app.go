@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Alexzxcv/vpn-client-windows/internal/autostart"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/buildinfo"
 	"github.com/Alexzxcv/vpn-client-windows/internal/deviceid"
@@ -190,7 +191,11 @@ func (a *App) routeOptions() routing.Options {
 }
 
 // Settings returns the current persisted settings.
-func (a *App) Settings() settings.Settings { return a.set.Get() }
+func (a *App) Settings() settings.Settings {
+	s := a.set.Get()
+	s.Autostart = autostart.Enabled() // registry is authoritative
+	return s
+}
 
 // SaveSettings validates and persists new settings. Port changes take effect on
 // the next connect; routing/kill-switch changes likewise. Returns the stored
@@ -204,6 +209,13 @@ func (a *App) SaveSettings(s settings.Settings) (settings.Settings, error) {
 	a.socksPort = cur.SocksPort
 	a.httpPort = cur.HTTPPort
 	a.mu.Unlock()
+	// Apply "start with Windows" (registry Run key); the registry is authoritative.
+	if exe, err := os.Executable(); err == nil {
+		if aerr := autostart.Set(s.Autostart, exe); aerr != nil {
+			a.log.Warn("autostart apply failed", slog.String("err", aerr.Error()))
+		}
+	}
+	cur.Autostart = autostart.Enabled()
 	return cur, nil
 }
 
@@ -266,11 +278,21 @@ func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
 	for _, l := range locs {
 		targets = append(targets, pingTarget{id: l.ID, host: l.Host, port: l.Port})
 	}
-	// Bound the whole measurement batch so a slow/unreachable node cannot stall
-	// the locations response.
-	mctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	a.ping.Refresh(mctx, targets)
-	cancel()
+	// Only probe the user's real ping while DISCONNECTED. Once a tunnel is up —
+	// especially TUN, whose userspace netstack terminates TCP locally — a
+	// TCP-connect probe returns ~0 ms for every node, which is meaningless (it
+	// used to read "1 ms everywhere"). While connected we keep the last
+	// pre-connect measurement; nodes never measured fall back to server LatencyMs.
+	a.mu.Lock()
+	disconnected := a.state == StateDisconnected
+	a.mu.Unlock()
+	if disconnected {
+		// Bound the whole measurement batch so a slow/unreachable node cannot
+		// stall the locations response.
+		mctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		a.ping.Refresh(mctx, targets)
+		cancel()
+	}
 
 	views := make([]LocationView, len(locs))
 	for i, l := range locs {
@@ -974,7 +996,9 @@ func (a *App) StartUpdateChecker() {
 		a.log.Info("update checker disabled by env")
 		return
 	}
-	interval := 24 * time.Hour
+	// The client is typically left running, so a periodic check (not just at
+	// startup) keeps it current. Default 15m; override with VPNCLIENT_UPDATE_INTERVAL.
+	interval := 15 * time.Minute
 	if v := strings.TrimSpace(os.Getenv("VPNCLIENT_UPDATE_INTERVAL")); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= time.Minute {
 			interval = d
