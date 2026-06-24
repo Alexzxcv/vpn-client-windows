@@ -119,8 +119,8 @@ jobs:
           $files = @{
             'geoip.dat'      = 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat'
             'geosite.dat'    = 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat'
-            'geoip-ru.srs'   = 'https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip-ru.srs'
-            'geosite-ru.srs' = 'https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite-ru.srs'
+            'geoip-ru.srs'   = 'https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs'
+            'geosite-ru.srs' = 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs'
           }
           foreach ($k in $files.Keys) {
             Write-Host "Downloading $($files[$k])"
