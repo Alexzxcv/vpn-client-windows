@@ -32,7 +32,12 @@ export interface Location {
   id: string;
   name: string;
   location: string;
+  /** Backend-measured latency in ms (0/absent if unknown). */
+  latency_ms?: number;
 }
+
+/** Sentinel server id for "Auto (best)": the backend picks the best node. */
+export const AUTO_SERVER_ID = 'auto';
 
 export interface Proxy {
   socks: string;
@@ -47,6 +52,17 @@ export interface Me {
 
 export interface ConnectResult {
   state: ConnState;
+}
+
+/** Result of an update check against GitHub Releases (mirrors updater.Result). */
+export interface UpdateResult {
+  current_version: string;
+  latest_version?: string;
+  update_available: boolean;
+  notes?: string;
+  release_url?: string;
+  asset_url?: string;
+  asset_name?: string;
 }
 
 /** User-editable local client settings (mirrors internal/settings.Settings). */

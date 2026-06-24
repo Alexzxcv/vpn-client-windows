@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
+	"github.com/Alexzxcv/vpn-client-windows/internal/buildinfo"
 	"github.com/Alexzxcv/vpn-client-windows/internal/deviceid"
 	"github.com/Alexzxcv/vpn-client-windows/internal/elevation"
 	"github.com/Alexzxcv/vpn-client-windows/internal/killswitch"
@@ -19,6 +21,7 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 	"github.com/Alexzxcv/vpn-client-windows/internal/singbox"
 	"github.com/Alexzxcv/vpn-client-windows/internal/sysproxy"
+	"github.com/Alexzxcv/vpn-client-windows/internal/updater"
 	"github.com/Alexzxcv/vpn-client-windows/internal/xray"
 )
 
@@ -47,6 +50,11 @@ const (
 	DefaultSocksPort = 10800
 	DefaultHTTPPort  = 10801
 )
+
+// AutoServerID is the sentinel location id meaning "let the backend pick the
+// best node" (по latency/health). When Connect receives it (or nil) the
+// /vpn/config request is sent WITHOUT a server_id so the backend chooses.
+const AutoServerID = "auto"
 
 // Auto-reconnect tuning: how many attempts and the backoff schedule.
 const (
@@ -89,7 +97,16 @@ type App struct {
 	id      *deviceid.Identity
 	set     *settings.Store
 	ks      *killswitch.Guard
+	upd     *updater.Updater
 	apiBase string
+
+	// updateMu guards the cached last update check + the latest downloaded
+	// installer path (so the UI can check then apply).
+	updateMu      sync.Mutex
+	lastUpdate    *updater.Result
+	pendingAsset  string // local path of the downloaded installer awaiting launch
+	updateStop    chan struct{}
+	updateRunning bool
 
 	socksPort int
 	httpPort  int
@@ -134,6 +151,7 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Ma
 		id:          id,
 		set:         set,
 		ks:          killswitch.New(log),
+		upd:         updater.New(buildinfo.Version, nil),
 		apiBase:     apiBase,
 		socksPort:   cur.SocksPort,
 		httpPort:    cur.HTTPPort,
@@ -196,9 +214,23 @@ func (a *App) Login(ctx context.Context, email, password string) error {
 	return nil
 }
 
-// Logout disconnects (if needed) and clears backend tokens.
+// Logout disconnects (if needed), clears the in-memory session cache and the
+// backend tokens (which also wipes the on-disk token file via the OnLogout
+// hook). The device key is intentionally NOT cleared: the device identity
+// survives logout.
 func (a *App) Logout(ctx context.Context) error {
+	// Disconnect tears down the engines, the refresh timer, the kill-switch and
+	// the system proxy, and clears lastServerID/expiresAt/wantConnected.
 	_ = a.Disconnect(ctx)
+
+	// Belt-and-suspenders: drop any residual cached session state so a later
+	// login starts clean (location label, last error).
+	a.mu.Lock()
+	a.location = nil
+	a.lastError = ""
+	a.expiresAt = time.Time{}
+	a.mu.Unlock()
+
 	a.be.ClearTokens()
 	a.log.Info("logout")
 	return nil
@@ -286,6 +318,13 @@ func (a *App) Connect(ctx context.Context, serverID *string, mode string) (State
 	m, err := ParseMode(mode)
 	if err != nil {
 		return a.fail(err)
+	}
+
+	// "Auto (best)" — это nil server_id: бэкенд сам выберет лучшую ноду по
+	// latency/health. Сентинел AutoServerID из UI приводим к nil тут, чтобы вся
+	// нижележащая логика (включая авто-реконнект) работала единообразно.
+	if serverID != nil && *serverID == AutoServerID {
+		serverID = nil
 	}
 
 	// Запомним выбор для авто-реконнекта. Делаем копию, чтобы не держать
@@ -761,6 +800,159 @@ func (a *App) ForceClearProxy() {
 		return
 	}
 	a.log.Info("system proxy cleared (crash-safe)")
+}
+
+// Version returns the running client version (from buildinfo, set via ldflags).
+func (a *App) Version() string { return buildinfo.Version }
+
+// CheckUpdate queries GitHub Releases for a newer build and caches the result so
+// the UI can later apply it without re-fetching. Returns the result for display.
+func (a *App) CheckUpdate(ctx context.Context) (updater.Result, error) {
+	res, err := a.upd.CheckLatest(ctx)
+	if err != nil {
+		return updater.Result{}, fmt.Errorf("check update: %w", err)
+	}
+	a.updateMu.Lock()
+	r := res
+	a.lastUpdate = &r
+	a.updateMu.Unlock()
+	if res.UpdateAvailable {
+		a.log.Info("client update available",
+			slog.String("current", res.CurrentVersion), slog.String("latest", res.LatestVersion))
+	}
+	return res, nil
+}
+
+// LastUpdate returns the most recent cached update-check result (nil if none yet).
+func (a *App) LastUpdate() *updater.Result {
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
+	if a.lastUpdate == nil {
+		return nil
+	}
+	r := *a.lastUpdate
+	return &r
+}
+
+// ApplyUpdate downloads the cached release asset (installer/zip) and launches it
+// so the user can update. It requires a prior CheckUpdate that found an update
+// with a downloadable asset. It does NOT quit the client; the caller (UI/tray)
+// decides when to exit so the installer can replace the binary. Never applies
+// without this explicit call (user-confirmed).
+func (a *App) ApplyUpdate(ctx context.Context) error {
+	a.updateMu.Lock()
+	res := a.lastUpdate
+	a.updateMu.Unlock()
+	if res == nil {
+		return fmt.Errorf("apply update: no update check has run yet")
+	}
+	if !res.UpdateAvailable {
+		return fmt.Errorf("apply update: no newer version available")
+	}
+	if res.AssetURL == "" {
+		return fmt.Errorf("apply update: release has no downloadable installer (open %s manually)", res.ReleaseURL)
+	}
+
+	a.log.Info("downloading client update", slog.String("version", res.LatestVersion))
+	path, err := a.upd.Download(ctx, res.AssetURL, res.AssetName)
+	if err != nil {
+		return fmt.Errorf("apply update: %w", err)
+	}
+	a.updateMu.Lock()
+	a.pendingAsset = path
+	a.updateMu.Unlock()
+
+	if err := updater.LaunchInstaller(path); err != nil {
+		return fmt.Errorf("apply update: launch: %w", err)
+	}
+	a.log.Info("update installer launched")
+	return nil
+}
+
+// StartUpdateChecker launches a background loop that periodically checks for
+// updates and caches the result. Gated by env: VPNCLIENT_UPDATE_CHECK=0 disables
+// it; VPNCLIENT_UPDATE_INTERVAL (Go duration, e.g. "6h") overrides the default
+// 24h. It runs an immediate check shortly after start. Idempotent.
+func (a *App) StartUpdateChecker() {
+	if v := strings.TrimSpace(os.Getenv("VPNCLIENT_UPDATE_CHECK")); v == "0" || strings.EqualFold(v, "false") || strings.EqualFold(v, "off") {
+		a.log.Info("update checker disabled by env")
+		return
+	}
+	interval := 24 * time.Hour
+	if v := strings.TrimSpace(os.Getenv("VPNCLIENT_UPDATE_INTERVAL")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= time.Minute {
+			interval = d
+		}
+	}
+
+	a.updateMu.Lock()
+	if a.updateRunning {
+		a.updateMu.Unlock()
+		return
+	}
+	a.updateRunning = true
+	stop := make(chan struct{})
+	a.updateStop = stop
+	a.updateMu.Unlock()
+
+	go a.updateLoop(stop, interval)
+}
+
+// StopUpdateChecker stops the background update loop if running.
+func (a *App) StopUpdateChecker() {
+	a.updateMu.Lock()
+	if a.updateStop != nil {
+		close(a.updateStop)
+		a.updateStop = nil
+		a.updateRunning = false
+	}
+	a.updateMu.Unlock()
+}
+
+func (a *App) updateLoop(stop <-chan struct{}, interval time.Duration) {
+	// First check shortly after startup (not instantly, to avoid racing the UI
+	// bootstrap and to let the network settle).
+	first := time.NewTimer(20 * time.Second)
+	defer first.Stop()
+	select {
+	case <-stop:
+		return
+	case <-first.C:
+		a.runUpdateCheck()
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			a.runUpdateCheck()
+		}
+	}
+}
+
+func (a *App) runUpdateCheck() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := a.CheckUpdate(ctx); err != nil {
+		a.log.Debug("background update check failed", slog.String("err", err.Error()))
+	}
+}
+
+// CleanupStaleEngines terminates orphaned xray/sing-box processes left behind by
+// a previous (crashed) run before we own the active engine. This prevents port
+// conflicts (SOCKS/HTTP) and a stale TUN interface from a zombie engine. Call at
+// startup, before the first connect. Only our bundled binaries are killed.
+func (a *App) CleanupStaleEngines() {
+	n := a.xm.KillOrphans()
+	if a.sbm != nil {
+		n += a.sbm.KillOrphans()
+	}
+	if n > 0 {
+		a.log.Warn("cleaned up orphaned engine processes from a previous run", slog.Int("count", n))
+	}
 }
 
 // CleanupStaleKillSwitch removes any kill-switch firewall rules left over from a

@@ -1,11 +1,12 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type { ControlApi } from '@/api/control';
-import type {
-  ConnMode,
-  ConnState,
-  Location,
-  Proxy,
-  Status,
+import {
+  AUTO_SERVER_ID,
+  type ConnMode,
+  type ConnState,
+  type Location,
+  type Proxy,
+  type Status,
 } from '@/api/types';
 import type { AuthStore } from './AuthStore';
 
@@ -27,7 +28,8 @@ export class ConnectionStore {
   selectedMode: ConnMode = 'proxy';
 
   locations: Location[] = [];
-  selectedServerId: string | null = null;
+  /** Defaults to "Auto (best)": the backend picks the lowest-latency node. */
+  selectedServerId: string = AUTO_SERVER_ID;
   proxy: Proxy | null = null;
 
   busy = false;
@@ -61,9 +63,8 @@ export class ConnectionStore {
     this.mode = status.mode;
     this.lastError = status.last_error ?? null;
     this.since = status.since ?? null;
-    if (status.location && !this.selectedServerId) {
-      this.selectedServerId = status.location.id;
-    }
+    // Do NOT override the user's selection (e.g. "Auto (best)") with the
+    // backend-resolved node id from the live status.
   }
 
   async refreshStatus(): Promise<void> {
@@ -88,8 +89,15 @@ export class ConnectionStore {
       const locations = await this.api.locations();
       runInAction(() => {
         this.locations = locations;
-        if (!this.selectedServerId && locations.length > 0) {
-          this.selectedServerId = locations[0].id;
+        // Keep the default "Auto (best)" selection; the user opts into a
+        // specific node explicitly. Only fall back to a concrete node if the
+        // current selection no longer exists (and is not the auto sentinel).
+        if (
+          this.selectedServerId !== AUTO_SERVER_ID &&
+          !locations.some((l) => l.id === this.selectedServerId) &&
+          locations.length > 0
+        ) {
+          this.selectedServerId = AUTO_SERVER_ID;
         }
       });
     } catch {
@@ -120,8 +128,10 @@ export class ConnectionStore {
     this.busy = true;
     this.actionError = null;
     try {
+      // "auto" is sent through verbatim; the core treats it as "no server_id"
+      // so the backend picks the best node.
       const res = await this.api.connect(
-        this.selectedServerId ?? undefined,
+        this.selectedServerId,
         this.selectedMode,
       );
       runInAction(() => {

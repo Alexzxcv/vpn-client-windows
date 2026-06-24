@@ -35,6 +35,10 @@ type Location struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Location string `json:"location"`
+	// LatencyMs is the backend-measured latency/health for this node in
+	// milliseconds (0 if the backend did not provide it). Surfaced to the UI so
+	// the user can compare nodes and so "Auto (best)" is explainable.
+	LatencyMs int `json:"latency_ms,omitempty"`
 }
 
 // VLESSConfig is the per-device VLESS Reality outbound config from /vpn/config.
@@ -79,6 +83,12 @@ type Client struct {
 	// (login/refresh/clear) — для персистентности на диске. Установить до
 	// первого использования.
 	OnTokens func(access, refresh string)
+
+	// OnLogout, если задан, вызывается при ClearTokens (logout) ПОСЛЕ обнуления
+	// токенов в памяти и OnTokens. Предназначен для гарантированной очистки
+	// токенов с диска (tokenstore.Clear), чтобы не осталось утечки на диске
+	// даже если OnTokens по какой-то причине не удалил файл. Идемпотентен.
+	OnLogout func()
 
 	mu      sync.RWMutex
 	access  string
@@ -131,13 +141,17 @@ func (c *Client) Authenticated() bool {
 	return c.access != ""
 }
 
-// ClearTokens drops any stored tokens (logout).
+// ClearTokens drops any stored tokens (logout) and runs the OnLogout cleanup
+// hook (e.g. wiping the on-disk token file) so no tokens leak to disk.
 func (c *Client) ClearTokens() {
 	c.mu.Lock()
 	c.access = ""
 	c.refresh = ""
 	c.mu.Unlock()
 	c.fireOnTokens()
+	if c.OnLogout != nil {
+		c.OnLogout()
+	}
 }
 
 type loginResp struct {

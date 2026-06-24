@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowUpCircle,
   Check,
   Copy,
   Globe,
@@ -10,9 +11,10 @@ import {
   Settings as SettingsIcon,
   ShieldAlert,
   Terminal,
+  X,
 } from 'lucide-react';
-import type { ConnMode } from '@/api/types';
-import { useConnection, useAuth } from '@/stores/context';
+import { AUTO_SERVER_ID, type ConnMode } from '@/api/types';
+import { useConnection, useAuth, useUpdate } from '@/stores/context';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, Eyebrow } from '@/components/ui/card';
@@ -39,14 +41,16 @@ import { mockPingSeries, mockTrafficSeries } from '@/mock/metrics';
 export const ConnectPage = observer(function ConnectPage() {
   const conn = useConnection();
   const auth = useAuth();
+  const update = useUpdate();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
   const socks = conn.proxy?.socks ?? '127.0.0.1:10800';
   const curlHint = `curl --socks5 ${socks} https://ifconfig.me`;
 
+  const isAuto = conn.selectedServerId === AUTO_SERVER_ID;
   const selected = conn.locations.find((l) => l.id === conn.selectedServerId);
-  const seedKey = conn.selectedServerId ?? 'default';
+  const seedKey = conn.selectedServerId;
 
   // TODO: replace with API — mock metrics keyed off the selected node.
   const ping = useMemo(() => mockPingSeries(seedKey), [seedKey]);
@@ -78,6 +82,32 @@ export const ConnectPage = observer(function ConnectPage() {
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full flex-col gap-3">
+        {/* update banner — only when a newer release is published */}
+        {update.available && (
+          <div className="flex items-center gap-2 rounded-sm border border-ion/40 bg-ion/10 px-2.5 py-1.5 text-xs text-frost">
+            <ArrowUpCircle className="h-4 w-4 shrink-0 text-ion" strokeWidth={1.5} />
+            <span className="min-w-0 flex-1 break-words">
+              Доступно обновление {update.latestVersion}
+              {update.error ? ` — ${update.error}` : ''}
+            </span>
+            <Button
+              size="sm"
+              onClick={() => void update.apply()}
+              disabled={update.applying}
+            >
+              {update.applying ? 'Загрузка…' : 'Обновить'}
+            </Button>
+            <button
+              type="button"
+              onClick={() => update.dismiss()}
+              aria-label="Dismiss update"
+              className="text-mute hover:text-frost"
+            >
+              <X className="h-4 w-4" strokeWidth={1.5} />
+            </button>
+          </div>
+        )}
+
         {/* status row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -99,8 +129,8 @@ export const ConnectPage = observer(function ConnectPage() {
         <Card className="bg-slate px-1 py-2">
           <RouteMap
             state={conn.state}
-            toName={selected?.name ?? '—'}
-            toSub={selected?.location}
+            toName={isAuto ? 'Auto (best)' : (selected?.name ?? '—')}
+            toSub={isAuto ? 'lowest latency' : selected?.location}
             pingMs={ping.last}
           />
         </Card>
@@ -169,7 +199,7 @@ export const ConnectPage = observer(function ConnectPage() {
         <label className="flex flex-col gap-1.5">
           <Eyebrow>Location</Eyebrow>
           <Select
-            value={conn.selectedServerId ?? undefined}
+            value={conn.selectedServerId}
             onValueChange={(v) => conn.setSelectedServer(v)}
             disabled={locked}
           >
@@ -177,9 +207,13 @@ export const ConnectPage = observer(function ConnectPage() {
               <SelectValue placeholder="Loading…" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={AUTO_SERVER_ID}>
+                Auto (best) — lowest latency
+              </SelectItem>
               {conn.locations.map((loc) => (
                 <SelectItem key={loc.id} value={loc.id}>
                   {loc.name} — {loc.location}
+                  {loc.latency_ms ? ` · ${loc.latency_ms} ms` : ''}
                 </SelectItem>
               ))}
             </SelectContent>

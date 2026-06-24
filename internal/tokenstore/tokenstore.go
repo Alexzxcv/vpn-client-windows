@@ -60,3 +60,17 @@ func Save(access, refresh string) {
 	}
 	_ = os.WriteFile(p, data, 0o600)
 }
+
+// Clear удаляет файл с токенами с диска (logout). Идемпотентно: отсутствие
+// файла — не ошибка. Возвращает ошибку только при реальном сбое удаления.
+// Device key (deviceid) НЕ трогаем — идентичность устройства переживает logout.
+func Clear() error {
+	p, err := filePath()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}

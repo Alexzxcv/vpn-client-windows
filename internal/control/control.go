@@ -28,9 +28,6 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 )
 
-// version reported via /api/bootstrap.
-const version = "0.1.0"
-
 // Server is the local control server.
 type Server struct {
 	log   *slog.Logger
@@ -148,6 +145,8 @@ func (s *Server) router() http.Handler {
 			authed.Get("/proxy", s.handleProxy)
 			authed.Get("/settings", s.handleGetSettings)
 			authed.Put("/settings", s.handlePutSettings)
+			authed.Get("/update/check", s.handleUpdateCheck)
+			authed.Post("/update/apply", s.handleUpdateApply)
 		})
 	})
 
@@ -222,7 +221,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session_token": s.token,
 		"api_base":      s.app.APIBase(),
-		"version":       version,
+		"version":       s.app.Version(),
 		// elevated сообщает UI, доступен ли TUN-режим без перезапуска от админа.
 		"elevated": elevation.IsElevated(),
 	})
@@ -334,6 +333,33 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, saved)
+}
+
+// handleUpdateCheck queries GitHub Releases for a newer build. It returns the
+// cached result if a background check already found one and the network is
+// unavailable, so the UI still shows a pending update.
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	res, err := s.app.CheckUpdate(r.Context())
+	if err != nil {
+		if cached := s.app.LastUpdate(); cached != nil {
+			writeJSON(w, http.StatusOK, cached)
+			return
+		}
+		writeErr(w, http.StatusBadGateway, "update check failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleUpdateApply downloads and launches the cached release installer. This is
+// only reached on an explicit user action in the UI (the "Обновить" button); the
+// client never auto-applies an update.
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.ApplyUpdate(r.Context()); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // ----- static UI -----

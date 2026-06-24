@@ -50,7 +50,10 @@ jobs:
       - name: Build GUI binary
         run: |
           New-Item -ItemType Directory -Force -Path bin | Out-Null
-          go build -ldflags "-s -w -H windowsgui" -o bin/vpnclient.exe ./cmd/vpnclient
+          $ver = "${{ github.ref_name }}"
+          $module = "github.com/Alexzxcv/vpn-client-windows"
+          $ldflags = "-s -w -H windowsgui -X $module/internal/buildinfo.Version=$ver"
+          go build -ldflags "$ldflags" -o bin/vpnclient.exe ./cmd/vpnclient
         shell: pwsh
 
       - name: Download xray.exe

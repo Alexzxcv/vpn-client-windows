@@ -34,3 +34,7 @@ export function useConnection() {
 export function useSettings() {
   return useStores().settings;
 }
+
+export function useUpdate() {
+  return useStores().update;
+}

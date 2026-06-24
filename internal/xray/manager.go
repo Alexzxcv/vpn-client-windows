@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Alexzxcv/vpn-client-windows/internal/procutil"
 )
 
 // FindBinary resolves the xray executable path:
@@ -103,6 +105,27 @@ func NewManager(log *slog.Logger) *Manager {
 		log = slog.Default()
 	}
 	return &Manager{log: log}
+}
+
+// KillOrphans terminates stray xray processes left over from a previous run
+// (crash-recovery) so they cannot hold the SOCKS/HTTP ports or the upstream
+// connection. It only kills processes whose image is exactly our bundled
+// xray binary; an unrelated "xray" elsewhere on the system is untouched. A
+// no-op if the binary cannot be resolved. Returns the number terminated.
+func (m *Manager) KillOrphans() int {
+	bin, err := FindBinary()
+	if err != nil {
+		return 0
+	}
+	n, err := procutil.KillOrphansByPath(bin)
+	if err != nil {
+		m.log.Warn("xray orphan cleanup", slog.String("err", err.Error()))
+		return 0
+	}
+	if n > 0 {
+		m.log.Warn("terminated orphaned xray process(es) from a previous run", slog.Int("count", n))
+	}
+	return n
 }
 
 // Running reports whether an xray process is currently managed.

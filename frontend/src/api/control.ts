@@ -7,6 +7,7 @@ import type {
   Proxy,
   Settings,
   Status,
+  UpdateResult,
 } from './types';
 
 export class ApiError extends Error {
@@ -148,6 +149,16 @@ export class ControlApi {
     return this.request<Settings>('/api/settings', {
       method: 'PUT',
       body: s,
+    });
+  }
+
+  checkUpdate(): Promise<UpdateResult> {
+    return this.request<UpdateResult>('/api/update/check');
+  }
+
+  applyUpdate(): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/api/update/apply', {
+      method: 'POST',
     });
   }
 }

@@ -29,11 +29,16 @@ GEOSITE_DAT_URL ?= https://github.com/Loyalsoldier/v2ray-rules-dat/releases/late
 SINGBOX_GEOIP_RU_URL   ?= https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip-ru.srs
 SINGBOX_GEOSITE_RU_URL ?= https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite-ru.srs
 
-# Release version (used in the zip name). Override: `make release VERSION=v0.2.0`.
+# Release version (used in the zip name and embedded via ldflags for the
+# auto-updater). Override: `make release VERSION=v0.2.0`.
 VERSION ?= dev
 
-# Build flags: GUI subsystem so no console window pops up; strip debug info.
-LDFLAGS := -s -w -H windowsgui
+# Module path for -X ldflags targeting the embedded build version.
+MODULE := github.com/Alexzxcv/vpn-client-windows
+
+# Build flags: GUI subsystem so no console window pops up; strip debug info; embed
+# the version so the in-app updater can compare against the latest GitHub release.
+LDFLAGS := -s -w -H windowsgui -X $(MODULE)/internal/buildinfo.Version=$(VERSION)
 
 .PHONY: ui build build-gui run xray singbox wintun geo tidy vet test release dist release-staging installer
 

@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/Alexzxcv/vpn-client-windows/internal/procutil"
 )
 
 // FindBinary resolves the sing-box executable path:
@@ -79,6 +81,27 @@ func NewManager(log *slog.Logger) *Manager {
 		log = slog.Default()
 	}
 	return &Manager{log: log}
+}
+
+// KillOrphans terminates stray sing-box processes left over from a previous run
+// (crash-recovery) so they cannot keep a TUN interface up or hold the upstream
+// connection. It only kills processes whose image is exactly our bundled
+// sing-box binary. A no-op if the binary cannot be resolved. Returns the number
+// terminated.
+func (m *Manager) KillOrphans() int {
+	bin, err := FindBinary()
+	if err != nil {
+		return 0
+	}
+	n, err := procutil.KillOrphansByPath(bin)
+	if err != nil {
+		m.log.Warn("sing-box orphan cleanup", slog.String("err", err.Error()))
+		return 0
+	}
+	if n > 0 {
+		m.log.Warn("terminated orphaned sing-box process(es) from a previous run", slog.Int("count", n))
+	}
+	return n
 }
 
 // Running reports whether a sing-box process is currently managed.

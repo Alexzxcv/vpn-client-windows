@@ -54,6 +54,13 @@ func main() {
 		be.SetTokens(a, r)
 	}
 	be.OnTokens = tokenstore.Save
+	// On logout, guarantee the on-disk token file is removed (no leak), even if
+	// OnTokens somehow did not. Device key is intentionally preserved.
+	be.OnLogout = func() {
+		if err := tokenstore.Clear(); err != nil {
+			log.Warn("clear tokens on logout", slog.String("err", err.Error()))
+		}
+	}
 	xm := xray.NewManager(log)
 	sbm := singbox.NewManager(log) // TUN-движок (полный туннель)
 
@@ -69,7 +76,10 @@ func main() {
 
 	// Crash-safe recovery: if a previous run died while connected, our system
 	// proxy and/or kill-switch firewall rules may still be active — remove them
-	// before doing anything else.
+	// before doing anything else. Orphaned engine processes (xray/sing-box) that
+	// outlived the crashed parent are terminated too so they cannot hold the
+	// proxy ports or a stale TUN interface.
+	application.CleanupStaleEngines()
 	application.CleanupStaleProxy()
 	application.CleanupStaleKillSwitch()
 
@@ -86,6 +96,10 @@ func main() {
 	url := srv.URL()
 	log.Info("ui available", slog.String("url", url))
 
+	// Background update checker (GitHub Releases). Gated by env; never
+	// auto-applies — it only caches availability for the UI to surface.
+	application.StartUpdateChecker()
+
 	// graceful shutdown: stop xray, drop the system proxy, stop the server.
 	var shutdownOnce bool
 	shutdown := func() {
@@ -93,6 +107,7 @@ func main() {
 			return
 		}
 		shutdownOnce = true
+		application.StopUpdateChecker()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = application.Disconnect(ctx)
