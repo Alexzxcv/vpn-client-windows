@@ -296,7 +296,14 @@ func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
 
 	views := make([]LocationView, len(locs))
 	for i, l := range locs {
-		views[i] = LocationView{Location: l, PingMs: a.ping.PingMs(l.ID)}
+		// Only surface the client-measured ping while DISCONNECTED. Once a tunnel
+		// is up the measurement is meaningless (local TCP termination), so report
+		// 0 and let the UI fall back to the server LatencyMs (a real number).
+		pm := 0
+		if disconnected {
+			pm = a.ping.PingMs(l.ID)
+		}
+		views[i] = LocationView{Location: l, PingMs: pm}
 	}
 	return views, nil
 }
