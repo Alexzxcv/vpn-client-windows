@@ -234,14 +234,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email    string `json:"email"`
+		Login    string `json:"login"` // email или username
+		Email    string `json:"email"` // обратная совместимость
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if err := s.app.Login(r.Context(), body.Email, body.Password); err != nil {
+	login := body.Login
+	if login == "" {
+		login = body.Email
+	}
+	if err := s.app.Login(r.Context(), login, body.Password); err != nil {
 		writeErr(w, http.StatusUnauthorized, "login failed")
 		return
 	}

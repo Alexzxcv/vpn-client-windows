@@ -10,12 +10,12 @@ import { Eyebrow } from '@/components/ui/card';
 export const LoginPage = observer(function LoginPage() {
   const auth = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const ok = await auth.login(email.trim(), password);
+    const ok = await auth.login(loginId.trim(), password);
     if (ok) {
       navigate('/', { replace: true });
     }
@@ -32,12 +32,12 @@ export const LoginPage = observer(function LoginPage() {
 
       <form className="flex flex-col gap-4" onSubmit={onSubmit}>
         <label className="flex flex-col gap-1.5">
-          <Eyebrow>Email</Eyebrow>
+          <Eyebrow>Email или логин</Eyebrow>
           <Input
-            type="email"
+            type="text"
             autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={loginId}
+            onChange={(e) => setLoginId(e.target.value)}
             required
             autoFocus
           />

@@ -103,10 +103,10 @@ export class ControlApi {
     return this.request<Status>('/api/status');
   }
 
-  login(email: string, password: string): Promise<{ ok: boolean }> {
+  login(login: string, password: string): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>('/api/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { login, password },
     });
   }
 

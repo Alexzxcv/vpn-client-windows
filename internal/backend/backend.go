@@ -146,8 +146,8 @@ type loginResp struct {
 }
 
 // Login authenticates with email/password and stores the returned tokens.
-func (c *Client) Login(ctx context.Context, email, password string) error {
-	body := map[string]string{"email": email, "password": password}
+func (c *Client) Login(ctx context.Context, login, password string) error {
+	body := map[string]string{"login": login, "password": password}
 	var out loginResp
 	if err := c.doJSON(ctx, http.MethodPost, "/auth/login", body, &out, false); err != nil {
 		return fmt.Errorf("login: %w", err)
