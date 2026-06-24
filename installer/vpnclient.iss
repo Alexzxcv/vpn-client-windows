@@ -68,7 +68,10 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+; shellexec (ShellExecuteEx) so the post-install launch honours the optional
+; RUNASADMIN compatibility flag — CreateProcess can't elevate and fails with
+; error 740 ("operation requires elevation") when run-as-admin was selected.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: postinstall skipifsilent shellexec
 
 [Code]
 // If the user opted for "always run as administrator", set the per-exe
