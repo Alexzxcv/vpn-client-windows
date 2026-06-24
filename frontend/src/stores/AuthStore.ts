@@ -10,6 +10,8 @@ export class AuthStore {
   version = '';
   /** Whether the core runs as administrator (TUN mode availability). */
   elevated = false;
+  /** Web-dashboard URL (registration). Empty hides the "create account" button. */
+  dashboardUrl = '';
 
   authenticated = false;
   me: Me | null = null;
@@ -39,6 +41,7 @@ export class AuthStore {
       runInAction(() => {
         this.version = data.version;
         this.elevated = data.elevated;
+        this.dashboardUrl = data.dashboard_url ?? '';
         this.authenticated = authed;
         this.bootstrapped = true;
         this.bootstrapError = null;
@@ -95,6 +98,16 @@ export class AuthStore {
       this.authenticated = false;
       this.me = null;
     });
+  }
+
+  /** Open the web dashboard (registration / account) in the system browser. */
+  async openRegister(): Promise<void> {
+    if (!this.dashboardUrl) return;
+    try {
+      await this.api.openExternal(this.dashboardUrl);
+    } catch {
+      // некритично — кнопка просто не сработает, ошибку не показываем
+    }
   }
 
   async loadMe(): Promise<void> {

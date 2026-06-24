@@ -102,6 +102,11 @@ type App struct {
 	ping    *pinger
 	apiBase string
 
+	// dashboardURL — адрес веб-дашборда (регистрация/личный кабинет). Открывается
+	// во внешнем браузере по кнопке «Создать аккаунт». Задаётся из env, т.к. домены
+	// со временем сменятся (см. SetDashboardURL).
+	dashboardURL string
+
 	// updateMu guards the cached last update check + the latest downloaded
 	// installer path (so the UI can check then apply).
 	updateMu      sync.Mutex
@@ -174,6 +179,13 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Ma
 
 // APIBase returns the backend base URL (for bootstrap).
 func (a *App) APIBase() string { return a.apiBase }
+
+// DashboardURL returns the configured web-dashboard URL (registration / account),
+// or "" if none is configured (the UI then hides the "create account" button).
+func (a *App) DashboardURL() string { return a.dashboardURL }
+
+// SetDashboardURL configures the web-dashboard URL surfaced to the UI.
+func (a *App) SetDashboardURL(u string) { a.dashboardURL = u }
 
 // SocksPort / HTTPPort expose the configured local proxy ports.
 func (a *App) SocksPort() int { return a.socksPort }

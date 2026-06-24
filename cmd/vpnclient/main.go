@@ -75,6 +75,14 @@ func main() {
 	set := settings.Load()
 	application := app.New(log, be, xm, sbm, id, set, apiBase)
 
+	// Адрес веб-дашборда для кнопки «Создать аккаунт» (регистрация в браузере).
+	// Через env, т.к. домены ещё сменятся; дефолт — текущий прод.
+	dashboardURL := os.Getenv("VPNCLIENT_DASHBOARD_URL")
+	if dashboardURL == "" {
+		dashboardURL = "https://bot.niffty.ru/"
+	}
+	application.SetDashboardURL(dashboardURL)
+
 	// Crash-safe recovery: if a previous run died while connected, our system
 	// proxy and/or kill-switch firewall rules may still be active — remove them
 	// before doing anything else. Orphaned engine processes (xray/sing-box) that

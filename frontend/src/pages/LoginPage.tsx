@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, LogIn } from 'lucide-react';
+import { AlertTriangle, LogIn, UserPlus } from 'lucide-react';
 import { useAuth } from '@/stores/context';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -69,6 +69,20 @@ export const LoginPage = observer(function LoginPage() {
           {auth.loggingIn ? 'Signing in…' : 'Sign in'}
         </Button>
       </form>
+
+      {auth.dashboardUrl && (
+        <div className="mt-6 flex flex-col items-center gap-2 border-t border-hairline pt-5">
+          <span className="text-2xs text-mute">Нет аккаунта?</span>
+          <button
+            type="button"
+            onClick={() => void auth.openRegister()}
+            className="flex items-center gap-1.5 text-sm text-ion hover:text-frost"
+          >
+            <UserPlus className="h-4 w-4" strokeWidth={1.5} />
+            Создать аккаунт
+          </button>
+        </div>
+      )}
     </div>
   );
 });

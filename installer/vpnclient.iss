@@ -61,11 +61,14 @@ Source: "{#StageDir}\wintun.dll";    DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\ui\*";  DestDir: "{app}\ui";  Flags: ignoreversion recursesubdirs createallsubdirs
 ; Geo databases for xray (geoip.dat/geosite.dat) and sing-box rule-sets (*.srs).
 Source: "{#StageDir}\geo\*"; DestDir: "{app}\geo"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+; Brand icon referenced explicitly by the Start-menu/desktop shortcuts — Explorer
+; otherwise falls back to a generic icon for the exe on some setups.
+Source: "{#StageDir}\app.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app.ico"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app.ico"; Tasks: desktopicon
 
 [Run]
 ; shellexec (ShellExecuteEx) so the post-install launch honours the optional

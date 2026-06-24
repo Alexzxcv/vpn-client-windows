@@ -163,6 +163,9 @@ func (s *Server) router() http.Handler {
 			authed.Put("/settings", s.handlePutSettings)
 			authed.Get("/update/check", s.handleUpdateCheck)
 			authed.Post("/update/apply", s.handleUpdateApply)
+			// Открыть URL во внешнем (системном) браузере — для кнопки
+			// «Создать аккаунт», ведущей на веб-дашборд.
+			authed.Post("/open-external", s.handleOpenExternal)
 			// Native window controls for the custom (frameless) title bar.
 			authed.Post("/window/minimize", s.handleWindowMinimize)
 			authed.Post("/window/maximize", s.handleWindowMaximize)
@@ -244,6 +247,8 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		"version":       s.app.Version(),
 		// elevated сообщает UI, доступен ли TUN-режим без перезапуска от админа.
 		"elevated": elevation.IsElevated(),
+		// dashboard_url — адрес веб-дашборда для кнопки «Создать аккаунт».
+		"dashboard_url": s.app.DashboardURL(),
 	})
 }
 
@@ -397,6 +402,23 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 // client never auto-applies an update.
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if err := s.app.ApplyUpdate(r.Context()); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleOpenExternal opens an http(s) URL in the user's default system browser.
+// Used by the "create account" button to send the user to the web dashboard.
+func (s *Server) handleOpenExternal(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := s.app.OpenExternal(body.URL); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
 	}

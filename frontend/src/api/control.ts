@@ -101,6 +101,14 @@ export class ControlApi {
     return this.request<Bootstrap>('/api/bootstrap', { auth: false });
   }
 
+  /** Open an http(s) URL in the system browser (e.g. the web dashboard). */
+  openExternal(url: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('/api/open-external', {
+      method: 'POST',
+      body: { url },
+    });
+  }
+
   status(): Promise<Status> {
     return this.request<Status>('/api/status');
   }

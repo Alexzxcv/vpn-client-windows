@@ -10,6 +10,8 @@ export interface Bootstrap {
   version: string;
   /** Whether the core runs elevated (administrator). TUN mode needs this. */
   elevated: boolean;
+  /** Web-dashboard URL (registration / account). Empty if not configured. */
+  dashboard_url?: string;
 }
 
 export interface StatusLocation {
