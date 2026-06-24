@@ -98,6 +98,7 @@ type App struct {
 	set     *settings.Store
 	ks      *killswitch.Guard
 	upd     *updater.Updater
+	ping    *pinger
 	apiBase string
 
 	// updateMu guards the cached last update check + the latest downloaded
@@ -152,6 +153,7 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Ma
 		set:         set,
 		ks:          killswitch.New(log),
 		upd:         updater.New(buildinfo.Version, nil),
+		ping:        newPinger(),
 		apiBase:     apiBase,
 		socksPort:   cur.SocksPort,
 		httpPort:    cur.HTTPPort,
@@ -241,9 +243,61 @@ func (a *App) Me(ctx context.Context) (backend.User, error) {
 	return a.be.Me(ctx)
 }
 
-// Locations returns available locations.
-func (a *App) Locations(ctx context.Context) ([]backend.Location, error) {
-	return a.be.Locations(ctx)
+// LocationView is a location annotated with the user's OWN measured ping
+// (PingMs) alongside the backend-reported LatencyMs (control-plane→node RTT).
+// PingMs is 0 when not yet measured or unreachable; the UI falls back to
+// LatencyMs in that case.
+type LocationView struct {
+	backend.Location
+	PingMs int `json:"ping_ms,omitempty"`
+}
+
+// Locations returns available locations annotated with the user's measured ping.
+// It (re-)measures ping to every node concurrently — using a short cache so a
+// burst of requests does not re-probe — then returns the locations with PingMs
+// filled in. Measurement failures leave PingMs at 0 (UI falls back to LatencyMs).
+func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
+	locs, err := a.be.Locations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	targets := make([]pingTarget, 0, len(locs))
+	for _, l := range locs {
+		targets = append(targets, pingTarget{id: l.ID, host: l.Host, port: l.Port})
+	}
+	// Bound the whole measurement batch so a slow/unreachable node cannot stall
+	// the locations response.
+	mctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	a.ping.Refresh(mctx, targets)
+	cancel()
+
+	views := make([]LocationView, len(locs))
+	for i, l := range locs {
+		views[i] = LocationView{Location: l, PingMs: a.ping.PingMs(l.ID)}
+	}
+	return views, nil
+}
+
+// bestServerByPing returns the id of the node with the lowest MEASURED user
+// ping, or "" if none has been measured yet (caller then falls back to letting
+// the backend choose). It fetches the current location list (cheap; uses the
+// ping cache) so "Auto (best)" picks the closest node for THIS user.
+func (a *App) bestServerByPing(ctx context.Context) string {
+	locs, err := a.be.Locations(ctx)
+	if err != nil || len(locs) == 0 {
+		return ""
+	}
+	targets := make([]pingTarget, 0, len(locs))
+	ids := make([]string, 0, len(locs))
+	for _, l := range locs {
+		targets = append(targets, pingTarget{id: l.ID, host: l.Host, port: l.Port})
+		ids = append(ids, l.ID)
+	}
+	mctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	a.ping.Refresh(mctx, targets)
+	cancel()
+	return a.ping.bestID(ids)
 }
 
 // UsageInfo is the combined traffic snapshot for the connect-page UI: the
@@ -356,8 +410,17 @@ func (a *App) Connect(ctx context.Context, serverID *string, mode string) (State
 	// "Auto (best)" — это nil server_id: бэкенд сам выберет лучшую ноду по
 	// latency/health. Сентинел AutoServerID из UI приводим к nil тут, чтобы вся
 	// нижележащая логика (включая авто-реконнект) работала единообразно.
+	// "Auto (best)": выбираем ноду с МИНИМАЛЬНЫМ измеренным ПОЛЬЗОВАТЕЛЬСКИМ
+	// пингом (TCP RTT клиент->нода) и передаём её server_id в /vpn/config.
+	// Если измерить ни одну ноду не удалось — фолбэк на прежнее поведение:
+	// nil server_id, бэкенд выбирает сам.
 	if serverID != nil && *serverID == AutoServerID {
-		serverID = nil
+		if best := a.bestServerByPing(ctx); best != "" {
+			a.log.Info("auto-select node by measured ping", slog.String("server_id", best))
+			serverID = &best
+		} else {
+			serverID = nil
+		}
 	}
 
 	// Запомним выбор для авто-реконнекта. Делаем копию, чтобы не держать

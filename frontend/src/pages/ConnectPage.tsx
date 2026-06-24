@@ -242,12 +242,17 @@ export const ConnectPage = observer(function ConnectPage() {
               <SelectItem value={AUTO_SERVER_ID}>
                 Auto (best) — lowest latency
               </SelectItem>
-              {conn.locations.map((loc) => (
-                <SelectItem key={loc.id} value={loc.id}>
-                  {loc.name} — {loc.location}
-                  {loc.latency_ms ? ` · ${loc.latency_ms} ms` : ''}
-                </SelectItem>
-              ))}
+              {conn.locations.map((loc) => {
+                // Show the user's OWN measured ping, falling back to the
+                // backend's control-plane latency when not yet measured.
+                const ms = loc.ping_ms || loc.latency_ms || 0;
+                return (
+                  <SelectItem key={loc.id} value={loc.id}>
+                    {loc.name} — {loc.location}
+                    {ms ? ` · ${ms} ms` : ''}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </label>

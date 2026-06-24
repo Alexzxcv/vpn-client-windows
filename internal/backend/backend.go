@@ -36,9 +36,15 @@ type Location struct {
 	Name     string `json:"name"`
 	Location string `json:"location"`
 	// LatencyMs is the backend-measured latency/health for this node in
-	// milliseconds (0 if the backend did not provide it). Surfaced to the UI so
-	// the user can compare nodes and so "Auto (best)" is explainable.
+	// milliseconds (0 if the backend did not provide it). This is the RTT from
+	// the control-plane to the node, NOT the user's own ping. Surfaced to the UI
+	// so nodes are comparable and as a fallback when the client cannot measure.
 	LatencyMs int `json:"latency_ms,omitempty"`
+	// Host and Port locate the node so the client can measure the user's OWN
+	// ping (TCP RTT) to it and pick the closest node for "Auto (best)". Empty/0
+	// when the backend did not provide them (older backends).
+	Host string `json:"host,omitempty"`
+	Port int    `json:"port,omitempty"`
 }
 
 // FreeDaily describes the free daily traffic allowance (when the account has no

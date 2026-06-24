@@ -89,18 +89,30 @@ export class ConnectionStore {
   }
 
   /**
-   * Latency (ms) for the current selection: the selected node's measured value,
-   * or — for "Auto (best)" — the minimum across all nodes. 0 if unknown.
+   * Effective ping (ms) for a location: the user's OWN measured ping (`ping_ms`),
+   * falling back to the backend's control-plane latency (`latency_ms`) when the
+   * client has not measured it yet. 0 if neither is known.
+   */
+  private effectivePing(loc: Location): number {
+    const measured = loc.ping_ms ?? 0;
+    if (measured > 0) return measured;
+    return loc.latency_ms ?? 0;
+  }
+
+  /**
+   * Ping (ms) for the current selection: the selected node's measured ping, or
+   * — for "Auto (best)" — the minimum measured ping across all nodes. 0 if
+   * unknown. Uses the user's real measurement (falling back to backend latency).
    */
   get pingMs(): number {
     if (this.selectedServerId === AUTO_SERVER_ID) {
       const vals = this.locations
-        .map((l) => l.latency_ms ?? 0)
+        .map((l) => this.effectivePing(l))
         .filter((v) => v > 0);
       return vals.length > 0 ? Math.min(...vals) : 0;
     }
     const sel = this.locations.find((l) => l.id === this.selectedServerId);
-    return sel?.latency_ms ?? 0;
+    return sel ? this.effectivePing(sel) : 0;
   }
 
   /** Append the current latency to the rolling window (only when measured). */

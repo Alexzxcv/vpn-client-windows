@@ -32,8 +32,12 @@ export interface Location {
   id: string;
   name: string;
   location: string;
-  /** Backend-measured latency in ms (0/absent if unknown). */
+  /** Control-plane→node RTT reported by the backend (0/absent if unknown).
+   *  This is NOT the user's own ping; prefer `ping_ms` when present. */
   latency_ms?: number;
+  /** The user's OWN measured ping (TCP RTT) to this node, in ms, measured by
+   *  the local core. 0/absent when not yet measured or unreachable. */
+  ping_ms?: number;
 }
 
 /** Sentinel server id for "Auto (best)": the backend picks the best node. */

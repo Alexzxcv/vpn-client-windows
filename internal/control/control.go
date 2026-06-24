@@ -293,7 +293,7 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if locs == nil {
-		locs = []backend.Location{}
+		locs = []app.LocationView{}
 	}
 	writeJSON(w, http.StatusOK, locs)
 }
