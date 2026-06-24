@@ -28,16 +28,30 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/settings"
 )
 
+// WindowController lets the control server drive the native window (frameless
+// title-bar buttons). Implemented by the cmd/vpnclient window manager; nil in
+// headless/test builds. Methods are safe to call from the HTTP goroutine.
+type WindowController interface {
+	Minimize()
+	ToggleMaximize()
+	Close()
+}
+
 // Server is the local control server.
 type Server struct {
 	log   *slog.Logger
 	app   *app.App
 	token string
 	uiDir string
+	win   WindowController
 
 	httpSrv  *http.Server
 	listener net.Listener
 }
+
+// SetWindowController wires the native window controller used by the
+// /api/window/* endpoints. Optional; when unset those endpoints are no-ops.
+func (s *Server) SetWindowController(w WindowController) { s.win = w }
 
 // New creates a control Server. log may be nil. uiDir is the directory of the
 // built UI; if empty it is resolved at Start time.
@@ -147,6 +161,10 @@ func (s *Server) router() http.Handler {
 			authed.Put("/settings", s.handlePutSettings)
 			authed.Get("/update/check", s.handleUpdateCheck)
 			authed.Post("/update/apply", s.handleUpdateApply)
+			// Native window controls for the custom (frameless) title bar.
+			authed.Post("/window/minimize", s.handleWindowMinimize)
+			authed.Post("/window/maximize", s.handleWindowMaximize)
+			authed.Post("/window/close", s.handleWindowClose)
 		})
 	})
 
@@ -360,6 +378,29 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// ----- window controls -----
+
+func (s *Server) handleWindowMinimize(w http.ResponseWriter, r *http.Request) {
+	if s.win != nil {
+		s.win.Minimize()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWindowMaximize(w http.ResponseWriter, r *http.Request) {
+	if s.win != nil {
+		s.win.ToggleMaximize()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWindowClose(w http.ResponseWriter, r *http.Request) {
+	if s.win != nil {
+		s.win.Close()
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ----- static UI -----

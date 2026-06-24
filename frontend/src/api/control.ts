@@ -161,6 +161,20 @@ export class ControlApi {
       method: 'POST',
     });
   }
+
+  // --- Native window controls (custom frameless title bar) ---
+
+  windowMinimize(): Promise<void> {
+    return this.request<void>('/api/window/minimize', { method: 'POST' });
+  }
+
+  windowMaximize(): Promise<void> {
+    return this.request<void>('/api/window/maximize', { method: 'POST' });
+  }
+
+  windowClose(): Promise<void> {
+    return this.request<void>('/api/window/close', { method: 'POST' });
+  }
 }
 
 export const api = new ControlApi();

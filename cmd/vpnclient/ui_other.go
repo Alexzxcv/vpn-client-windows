@@ -19,6 +19,8 @@ func newWindowManager(log *slog.Logger, title, url string) *windowManager {
 	return &windowManager{log: log, url: url}
 }
 
-func (m *windowManager) Open()        {}
-func (m *windowManager) Close()       {}
-func (m *windowManager) IsOpen() bool { return false }
+func (m *windowManager) Open()           {}
+func (m *windowManager) Close()          {}
+func (m *windowManager) Minimize()       {}
+func (m *windowManager) ToggleMaximize() {}
+func (m *windowManager) IsOpen() bool    { return false }

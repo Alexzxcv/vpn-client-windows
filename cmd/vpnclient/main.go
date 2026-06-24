@@ -96,6 +96,11 @@ func main() {
 	url := srv.URL()
 	log.Info("ui available", slog.String("url", url))
 
+	// Window manager owns the native frameless window; the control server drives
+	// its title-bar buttons via /api/window/*.
+	window := newWindowManager(log, "SAPN VPN", url)
+	srv.SetWindowController(window)
+
 	// Background update checker (GitHub Releases). Gated by env; never
 	// auto-applies — it only caches availability for the UI to surface.
 	application.StartUpdateChecker()
@@ -138,7 +143,6 @@ func main() {
 		return
 	}
 
-	window := newWindowManager(log, "VPN Client", url)
 	tray := newTrayController(log, application, window)
 
 	go func() {

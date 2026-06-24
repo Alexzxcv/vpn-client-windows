@@ -2,8 +2,14 @@ import { observer } from 'mobx-react-lite';
 import type { ReactNode } from 'react';
 import { useAuth } from '@/stores/context';
 import { Eyebrow } from '@/components/ui/card';
-import { Logo } from '@/components/Logo';
+import { Titlebar } from '@/components/Titlebar';
 
+/**
+ * App chrome: custom frameless title bar + a width-capped, centered content
+ * column. The client is a compact control panel — content never stretches into
+ * a wide dashboard on large/maximized windows; it stays centered on the dark
+ * background.
+ */
 export const Layout = observer(function Layout({
   children,
 }: {
@@ -12,18 +18,17 @@ export const Layout = observer(function Layout({
   const auth = useAuth();
   return (
     <div className="flex h-full min-h-screen flex-col bg-void text-frost">
-      <header className="flex items-center justify-between border-b border-hairline bg-slate px-4 py-2.5">
-        <span className="flex items-center gap-2">
-          <Logo className="h-5 w-5" />
-          <span className="font-display text-sm font-semibold tracking-tight">
-            SAPN<span className="text-ion">·</span>VPN
-          </span>
-        </span>
-        {auth.version && (
-          <Eyebrow className="tabnum">v{auth.version}</Eyebrow>
-        )}
-      </header>
-      <main className="flex-1 overflow-y-auto p-4">{children}</main>
+      <Titlebar />
+      <div className="flex flex-1 justify-center overflow-y-auto">
+        <div className="flex w-full max-w-[440px] flex-col">
+          {auth.version && (
+            <div className="flex justify-end px-4 pt-2">
+              <Eyebrow className="tabnum">v{auth.version}</Eyebrow>
+            </div>
+          )}
+          <main className="flex-1 p-4 pt-2">{children}</main>
+        </div>
+      </div>
     </div>
   );
 });

@@ -26,8 +26,8 @@ WINTUN_ZIP     ?= wintun-$(WINTUN_VERSION).zip
 # the ru .srs rule-sets used by the "Russian sites direct" toggle.
 GEOIP_DAT_URL   ?= https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
 GEOSITE_DAT_URL ?= https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
-SINGBOX_GEOIP_RU_URL   ?= https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip-ru.srs
-SINGBOX_GEOSITE_RU_URL ?= https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite-ru.srs
+SINGBOX_GEOIP_RU_URL   ?= https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs
+SINGBOX_GEOSITE_RU_URL ?= https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs
 
 # Release version (used in the zip name and embedded via ldflags for the
 # auto-updater). Override: `make release VERSION=v0.2.0`.
