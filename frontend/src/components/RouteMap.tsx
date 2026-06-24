@@ -48,6 +48,12 @@ export function RouteMap({
 
   const animate = state === 'connecting' || state === 'connected';
 
+  // Right-anchored labels near the destination node never overflow the right
+  // edge; long node names are ellipsised so they don't drive off the graph.
+  const clip = (s: string, n: number) =>
+    s.length > n ? `${s.slice(0, n - 1)}…` : s;
+  const labelX = X1 + 20;
+
   // requestAnimationFrame-driven packet travelling along the line.
   useEffect(() => {
     const packet = packetRef.current;
@@ -146,31 +152,31 @@ export function RouteMap({
         strokeWidth={1.5}
       />
       <text
-        x={X1}
+        x={labelX}
         y={Y - 16}
-        textAnchor="middle"
+        textAnchor="end"
         className="fill-[var(--frost)] font-mono"
         fontSize="11"
       >
-        {toName}
+        {clip(toName, 22)}
       </text>
       {toSub && (
         <text
-          x={X1}
+          x={labelX}
           y={Y + 22}
-          textAnchor="middle"
+          textAnchor="end"
           className="fill-[var(--mute)] font-mono"
           fontSize="9"
           letterSpacing="0.08em"
         >
-          {toSub.toUpperCase()}
+          {clip(toSub.toUpperCase(), 24)}
         </text>
       )}
       {pingMs != null && state === 'connected' && (
         <text
-          x={X1}
+          x={labelX}
           y={Y + 34}
-          textAnchor="middle"
+          textAnchor="end"
           className="fill-[var(--ok)] font-mono"
           fontSize="9"
         >

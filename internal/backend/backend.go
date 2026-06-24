@@ -90,6 +90,13 @@ type Client struct {
 	// даже если OnTokens по какой-то причине не удалил файл. Идемпотентен.
 	OnLogout func()
 
+	// refreshMu serializes token refreshes (single-flight). Without it,
+	// concurrent 401s on startup each call /auth/refresh with the SAME refresh
+	// token; the backend rotates refresh tokens and treats the second use as
+	// reuse -> revokes all sessions -> the user is logged out. Single-flight
+	// guarantees one refresh; latecomers reuse the freshly minted access token.
+	refreshMu sync.Mutex
+
 	mu      sync.RWMutex
 	access  string
 	refresh string
@@ -178,10 +185,21 @@ func (c *Client) Login(ctx context.Context, login, password string) error {
 }
 
 // refreshTokens calls POST /auth/refresh once to renew the access token.
-func (c *Client) refreshTokens(ctx context.Context) error {
+// staleAccess is the access token that just got a 401; single-flight ensures we
+// don't replay an already-rotated refresh token (which the backend treats as
+// reuse and revokes all sessions).
+func (c *Client) refreshTokens(ctx context.Context, staleAccess string) error {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	// If another goroutine already refreshed while we waited for the lock, the
+	// access token changed — just use it instead of replaying the refresh token.
 	c.mu.RLock()
-	rt := c.refresh
+	cur, rt := c.access, c.refresh
 	c.mu.RUnlock()
+	if cur != "" && cur != staleAccess {
+		return nil
+	}
 	if rt == "" {
 		return errors.New("no refresh token")
 	}
@@ -319,9 +337,12 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in, out any, a
 // doJSONHeaders is doJSON with extra request headers (e.g. device-identity
 // headers). The headers are re-sent on the post-refresh retry.
 func (c *Client) doJSONHeaders(ctx context.Context, method, path string, in, out any, auth bool, headers map[string]string) error {
+	c.mu.RLock()
+	usedAccess := c.access
+	c.mu.RUnlock()
 	err := c.doOnce(ctx, method, path, in, out, auth, headers)
 	if auth && errors.Is(err, errUnauthorized) {
-		if rerr := c.refreshTokens(ctx); rerr != nil {
+		if rerr := c.refreshTokens(ctx, usedAccess); rerr != nil {
 			return fmt.Errorf("after 401: %w", rerr)
 		}
 		return c.doOnce(ctx, method, path, in, out, auth, headers)

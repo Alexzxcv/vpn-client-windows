@@ -41,6 +41,18 @@
   box-sizing: border-box;
 }
 
+/* Hidden scrollbars — compact desktop app: content stays scrollable (the user
+   scrolls intuitively), but no visible scrollbar at any window size. */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 html,
 body {
   margin: 0;

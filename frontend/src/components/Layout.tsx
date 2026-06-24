@@ -17,9 +17,9 @@ export const Layout = observer(function Layout({
 }) {
   const auth = useAuth();
   return (
-    <div className="flex h-full min-h-screen flex-col bg-void text-frost">
+    <div className="flex h-screen flex-col overflow-hidden bg-void text-frost">
       <Titlebar />
-      <div className="flex flex-1 justify-center overflow-y-auto">
+      <div className="flex min-h-0 flex-1 justify-center overflow-y-auto">
         <div className="flex w-full max-w-[440px] flex-col">
           {auth.version && (
             <div className="flex justify-end px-4 pt-2">

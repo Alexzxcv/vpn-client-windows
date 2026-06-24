@@ -27,12 +27,23 @@ export class AuthStore {
     try {
       const data = await this.api.bootstrap();
       this.api.setSessionToken(data.session_token);
+      // Recognize an already-authenticated core (persisted tokens) BEFORE
+      // flipping `bootstrapped` — otherwise the router mounts with
+      // authenticated=false and bounces the user to /login (race).
+      let authed = false;
+      try {
+        authed = (await this.api.status()).authenticated;
+      } catch {
+        // treat as not authenticated
+      }
       runInAction(() => {
         this.version = data.version;
         this.elevated = data.elevated;
+        this.authenticated = authed;
         this.bootstrapped = true;
         this.bootstrapError = null;
       });
+      if (authed) void this.loadMe();
     } catch (e) {
       runInAction(() => {
         this.bootstrapError =
