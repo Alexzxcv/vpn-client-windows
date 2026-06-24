@@ -1,5 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { useMemo, useState } from 'react';
+import type uPlot from 'uplot';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -36,7 +37,20 @@ import { MetricCell } from '@/components/MetricCell';
 import { RouteMap } from '@/components/RouteMap';
 import { UPlotChart } from '@/components/chart/UPlotChart';
 import { sparkline, areaSparkline } from '@/components/chart/chartTheme';
-import { mockPingSeries, mockTrafficSeries } from '@/mock/metrics';
+
+/** Human-readable bytes (1024-based): "0 B", "12.3 MB", "1.4 GB". */
+function formatBytes(bytes: number): { value: string; unit: string } {
+  if (!Number.isFinite(bytes) || bytes <= 0) return { value: '0', unit: 'B' };
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  const value = i === 0 ? String(Math.round(n)) : n.toFixed(n < 10 ? 2 : 1);
+  return { value, unit: units[i] };
+}
 
 export const ConnectPage = observer(function ConnectPage() {
   const conn = useConnection();
@@ -50,11 +64,29 @@ export const ConnectPage = observer(function ConnectPage() {
 
   const isAuto = conn.selectedServerId === AUTO_SERVER_ID;
   const selected = conn.locations.find((l) => l.id === conn.selectedServerId);
-  const seedKey = conn.selectedServerId;
 
-  // TODO: replace with API — mock metrics keyed off the selected node.
-  const ping = useMemo(() => mockPingSeries(seedKey), [seedKey]);
-  const traffic = useMemo(() => mockTrafficSeries(seedKey), [seedKey]);
+  // Ping: live latency for the selected node (Auto → lowest across nodes),
+  // sparkline = the rolling window of real measurements from the store.
+  const pingMs = conn.pingMs;
+  const ping = useMemo<uPlot.AlignedData>(() => {
+    const ys = conn.pingSamples;
+    const xs = ys.map((_, i) => i);
+    return [xs, ys];
+  }, [conn.pingSamples]);
+
+  // Traffic: cumulative used bytes over time from /api/usage; the headline
+  // value is the current total used (free-daily today if present, else period).
+  const usage = conn.usage;
+  const traffic = useMemo<uPlot.AlignedData>(() => {
+    const samples = usage?.samples ?? [];
+    const xs = samples.map((_, i) => i);
+    const ys = samples.map((s) => s.used_bytes);
+    return [xs, ys];
+  }, [usage]);
+  const usedBytes = usage?.free_daily
+    ? usage.free_daily.used_today_bytes
+    : (usage?.traffic_used_bytes ?? 0);
+  const trafficFmt = formatBytes(usedBytes);
 
   const locked = conn.state === 'connected' || conn.state === 'connecting';
 
@@ -131,7 +163,7 @@ export const ConnectPage = observer(function ConnectPage() {
             state={conn.state}
             toName={isAuto ? 'Auto (best)' : (selected?.name ?? '—')}
             toSub={isAuto ? 'lowest latency' : selected?.location}
-            pingMs={ping.last}
+            pingMs={pingMs > 0 ? pingMs : undefined}
           />
         </Card>
 
@@ -224,23 +256,23 @@ export const ConnectPage = observer(function ConnectPage() {
         <div className="grid grid-cols-2 gap-2">
           <MetricCell
             label="Ping"
-            value={String(ping.last)}
-            unit="ms"
+            value={pingMs > 0 ? String(pingMs) : '—'}
+            unit={pingMs > 0 ? 'ms' : ''}
             chart={
               <UPlotChart
-                data={ping.data}
+                data={ping}
                 height={32}
                 options={(s) => sparkline(s)}
               />
             }
           />
           <MetricCell
-            label="Session"
-            value={traffic.totalMb.toFixed(1)}
-            unit="MB"
+            label="Traffic"
+            value={trafficFmt.value}
+            unit={trafficFmt.unit}
             chart={
               <UPlotChart
-                data={traffic.data}
+                data={traffic}
                 height={32}
                 options={(s) => areaSparkline(s)}
               />

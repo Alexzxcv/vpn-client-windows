@@ -41,6 +41,36 @@ type Location struct {
 	LatencyMs int `json:"latency_ms,omitempty"`
 }
 
+// FreeDaily describes the free daily traffic allowance (when the account has no
+// paid subscription, or in addition to it). All sizes are in bytes.
+type FreeDaily struct {
+	LimitBytes     int64     `json:"limit_bytes"`
+	UsedTodayBytes int64     `json:"used_today_bytes"`
+	ResetsAt       time.Time `json:"resets_at"`
+}
+
+// Subscription is the current account subscription / quota snapshot from
+// GET /subscription. Byte counters are absolute totals for the current period.
+type Subscription struct {
+	TrafficUsedBytes  int64      `json:"traffic_used_bytes"`
+	TrafficLimitBytes int64      `json:"traffic_limit_bytes"`
+	FreeDaily         *FreeDaily `json:"free_daily,omitempty"`
+}
+
+// UsageSample is one point of the traffic-over-time series from
+// GET /subscription/usage. Ts is the sample wall-clock time; UsedBytes is the
+// cumulative bytes used at that moment, LimitBytes the limit then in force.
+type UsageSample struct {
+	Ts         time.Time `json:"ts"`
+	UsedBytes  int64     `json:"used_bytes"`
+	LimitBytes int64     `json:"limit_bytes"`
+}
+
+// Usage is the windowed traffic series from GET /subscription/usage.
+type Usage struct {
+	Samples []UsageSample `json:"samples"`
+}
+
 // VLESSConfig is the per-device VLESS Reality outbound config from /vpn/config.
 type VLESSConfig struct {
 	Host        string
@@ -237,6 +267,29 @@ func (c *Client) Locations(ctx context.Context) ([]Location, error) {
 		return nil, fmt.Errorf("locations: %w", err)
 	}
 	return locs, nil
+}
+
+// Subscription returns the current account subscription / quota snapshot.
+func (c *Client) Subscription(ctx context.Context) (Subscription, error) {
+	var s Subscription
+	if err := c.doJSON(ctx, http.MethodGet, "/subscription", nil, &s, true); err != nil {
+		return Subscription{}, fmt.Errorf("subscription: %w", err)
+	}
+	return s, nil
+}
+
+// Usage returns the traffic-over-time series for the last `hours` hours
+// (used for the connect-page sparkline). hours defaults to 24 when <= 0.
+func (c *Client) Usage(ctx context.Context, hours int) (Usage, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	var u Usage
+	path := fmt.Sprintf("/subscription/usage?hours=%d", hours)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &u, true); err != nil {
+		return Usage{}, fmt.Errorf("usage: %w", err)
+	}
+	return u, nil
 }
 
 // vpnConfigResp matches the wire shape of POST /vpn/config.

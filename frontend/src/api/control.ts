@@ -8,6 +8,7 @@ import type {
   Settings,
   Status,
   UpdateResult,
+  Usage,
 } from './types';
 
 export class ApiError extends Error {
@@ -121,6 +122,10 @@ export class ControlApi {
 
   locations(): Promise<Location[]> {
     return this.request<Location[]>('/api/locations');
+  }
+
+  usage(hours = 24): Promise<Usage> {
+    return this.request<Usage>(`/api/usage?hours=${hours}`);
   }
 
   connect(serverId?: string, mode?: ConnMode): Promise<ConnectResult> {

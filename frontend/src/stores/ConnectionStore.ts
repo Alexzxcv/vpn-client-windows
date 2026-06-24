@@ -7,15 +7,21 @@ import {
   type Location,
   type Proxy,
   type Status,
+  type Usage,
 } from '@/api/types';
 import type { AuthStore } from './AuthStore';
 
 const POLL_INTERVAL_MS = 2000;
+/** How often we re-measure latency (locations) and refresh traffic usage. */
+const METRICS_INTERVAL_MS = 5000;
+/** Rolling ping window size for the sparkline. */
+const PING_WINDOW = 48;
 
 export class ConnectionStore {
   private readonly api: ControlApi;
   private readonly auth: AuthStore;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private metricsTimer: ReturnType<typeof setInterval> | null = null;
 
   state: ConnState = 'disconnected';
   connected = false;
@@ -35,6 +41,11 @@ export class ConnectionStore {
   busy = false;
   actionError: string | null = null;
 
+  /** Rolling window of measured latency (ms) for the selected node, newest last. */
+  pingSamples: number[] = [];
+  /** Latest traffic usage snapshot (totals + samples) from /api/usage. */
+  usage: Usage | null = null;
+
   constructor(api: ControlApi, auth: AuthStore) {
     this.api = api;
     this.auth = auth;
@@ -47,12 +58,68 @@ export class ConnectionStore {
     this.pollTimer = setInterval(() => {
       void this.refreshStatus();
     }, POLL_INTERVAL_MS);
+
+    void this.refreshMetrics();
+    this.metricsTimer = setInterval(() => {
+      void this.refreshMetrics();
+    }, METRICS_INTERVAL_MS);
   }
 
   stopPolling(): void {
     if (this.pollTimer !== null) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+    if (this.metricsTimer !== null) {
+      clearInterval(this.metricsTimer);
+      this.metricsTimer = null;
+    }
+  }
+
+  /**
+   * Re-measure latency (via locations) and refresh traffic usage. Driven on a
+   * slower cadence than status; silent on transient failures so the sparklines
+   * keep their last good shape.
+   */
+  async refreshMetrics(): Promise<void> {
+    if (!this.api.hasSessionToken() || !this.auth.authenticated) return;
+    await this.loadLocations();
+    this.recordPingSample();
+    await this.loadUsage();
+  }
+
+  /**
+   * Latency (ms) for the current selection: the selected node's measured value,
+   * or — for "Auto (best)" — the minimum across all nodes. 0 if unknown.
+   */
+  get pingMs(): number {
+    if (this.selectedServerId === AUTO_SERVER_ID) {
+      const vals = this.locations
+        .map((l) => l.latency_ms ?? 0)
+        .filter((v) => v > 0);
+      return vals.length > 0 ? Math.min(...vals) : 0;
+    }
+    const sel = this.locations.find((l) => l.id === this.selectedServerId);
+    return sel?.latency_ms ?? 0;
+  }
+
+  /** Append the current latency to the rolling window (only when measured). */
+  private recordPingSample(): void {
+    const v = this.pingMs;
+    if (v <= 0) return;
+    runInAction(() => {
+      this.pingSamples = [...this.pingSamples, v].slice(-PING_WINDOW);
+    });
+  }
+
+  async loadUsage(): Promise<void> {
+    try {
+      const usage = await this.api.usage(24);
+      runInAction(() => {
+        this.usage = usage;
+      });
+    } catch {
+      // некритично — оставляем последнее значение
     }
   }
 
@@ -117,7 +184,13 @@ export class ConnectionStore {
   }
 
   setSelectedServer(id: string): void {
+    if (id !== this.selectedServerId) {
+      // The ping window tracks the selected node; reset it on a switch and seed
+      // it with the new node's current measurement.
+      this.pingSamples = [];
+    }
     this.selectedServerId = id;
+    this.recordPingSample();
   }
 
   setSelectedMode(mode: ConnMode): void {

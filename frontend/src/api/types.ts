@@ -44,6 +44,28 @@ export interface Proxy {
   http?: string;
 }
 
+/** Free daily traffic allowance (bytes), mirrors backend.FreeDaily. */
+export interface FreeDaily {
+  limit_bytes: number;
+  used_today_bytes: number;
+  resets_at: string;
+}
+
+/** One traffic-over-time sample (cumulative used bytes at `ts`). */
+export interface UsageSample {
+  ts: string;
+  used_bytes: number;
+  limit_bytes: number;
+}
+
+/** Combined traffic snapshot from GET /api/usage (mirrors app.UsageInfo). */
+export interface Usage {
+  traffic_used_bytes: number;
+  traffic_limit_bytes: number;
+  free_daily?: FreeDaily;
+  samples: UsageSample[];
+}
+
 export interface Me {
   id: string;
   email: string;

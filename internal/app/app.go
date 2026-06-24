@@ -246,6 +246,39 @@ func (a *App) Locations(ctx context.Context) ([]backend.Location, error) {
 	return a.be.Locations(ctx)
 }
 
+// UsageInfo is the combined traffic snapshot for the connect-page UI: the
+// current period totals, the optional free-daily allowance, and the windowed
+// samples used to draw the traffic sparkline.
+type UsageInfo struct {
+	TrafficUsedBytes  int64                 `json:"traffic_used_bytes"`
+	TrafficLimitBytes int64                 `json:"traffic_limit_bytes"`
+	FreeDaily         *backend.FreeDaily    `json:"free_daily,omitempty"`
+	Samples           []backend.UsageSample `json:"samples"`
+}
+
+// Usage fetches the subscription quota snapshot and the windowed traffic series
+// (last `hours` hours) and merges them for the UI. hours defaults to 24.
+func (a *App) Usage(ctx context.Context, hours int) (UsageInfo, error) {
+	sub, err := a.be.Subscription(ctx)
+	if err != nil {
+		return UsageInfo{}, fmt.Errorf("usage: %w", err)
+	}
+	usage, err := a.be.Usage(ctx, hours)
+	if err != nil {
+		return UsageInfo{}, fmt.Errorf("usage: %w", err)
+	}
+	samples := usage.Samples
+	if samples == nil {
+		samples = []backend.UsageSample{}
+	}
+	return UsageInfo{
+		TrafficUsedBytes:  sub.TrafficUsedBytes,
+		TrafficLimitBytes: sub.TrafficLimitBytes,
+		FreeDaily:         sub.FreeDaily,
+		Samples:           samples,
+	}, nil
+}
+
 // Status returns a snapshot of the current state.
 func (a *App) Status() Status {
 	a.mu.Lock()

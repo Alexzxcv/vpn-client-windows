@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -154,6 +155,7 @@ func (s *Server) router() http.Handler {
 			authed.Post("/auth/logout", s.handleLogout)
 			authed.Get("/me", s.handleMe)
 			authed.Get("/locations", s.handleLocations)
+			authed.Get("/usage", s.handleUsage)
 			authed.Post("/connect", s.handleConnect)
 			authed.Post("/disconnect", s.handleDisconnect)
 			authed.Get("/proxy", s.handleProxy)
@@ -294,6 +296,27 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 		locs = []backend.Location{}
 	}
 	writeJSON(w, http.StatusOK, locs)
+}
+
+// handleUsage returns the current traffic totals, the optional free-daily
+// allowance and the windowed traffic samples for the connect-page sparkline.
+// The window defaults to 24h; override with ?hours=N.
+func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+	hours := 24
+	if v := r.URL.Query().Get("hours"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			hours = n
+		}
+	}
+	usage, err := s.app.Usage(r.Context(), hours)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "usage failed")
+		return
+	}
+	if usage.Samples == nil {
+		usage.Samples = []backend.UsageSample{}
+	}
+	writeJSON(w, http.StatusOK, usage)
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
