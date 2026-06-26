@@ -15,9 +15,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -59,6 +61,48 @@ func (s Server) VLESSConfig() backend.VLESSConfig {
 		SNI:         s.SNI,
 		Fingerprint: s.Fingerprint,
 	}
+}
+
+// Link реконструирует vless://-ссылку сервера (обратная операция к ParseVLESS):
+//
+//	vless://<uuid>@<host>:<port>?type=tcp&encryption=none&security=..&sni=..&fp=..&pbk=..&sid=..&flow=..#name
+//
+// Пустые reality-поля опускаются. Подходит для копирования пользователем и
+// для повторного импорта в любой VLESS-клиент.
+func (s Server) Link() string {
+	q := url.Values{}
+	q.Set("type", "tcp")
+	q.Set("encryption", "none")
+	security := s.Security
+	if security == "" {
+		security = "reality"
+	}
+	q.Set("security", security)
+	if s.SNI != "" {
+		q.Set("sni", s.SNI)
+	}
+	fp := s.Fingerprint
+	if fp == "" {
+		fp = "chrome"
+	}
+	q.Set("fp", fp)
+	if s.PublicKey != "" {
+		q.Set("pbk", s.PublicKey)
+	}
+	if s.ShortID != "" {
+		q.Set("sid", s.ShortID)
+	}
+	if s.Flow != "" {
+		q.Set("flow", s.Flow)
+	}
+	u := url.URL{
+		Scheme:   "vless",
+		User:     url.User(s.UUID),
+		Host:     net.JoinHostPort(s.Host, strconv.Itoa(s.Port)),
+		RawQuery: q.Encode(),
+		Fragment: s.Name,
+	}
+	return u.String()
 }
 
 // ParseVLESS разбирает одну vless://-ссылку в Server. Формат:

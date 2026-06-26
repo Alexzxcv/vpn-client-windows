@@ -69,6 +69,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     'custom.placeholder': 'vless://… or https://… (subscription)',
     'custom.adding': 'Adding…',
     'custom.remove': 'Remove {name}',
+    'custom.copyLink': 'Copy vless link for {name}',
     'custom.note':
       'Traffic over your own servers is not counted and not limited by the subscription.',
     'custom.addFailed': 'Failed to add server',
@@ -169,6 +170,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     'custom.placeholder': 'vless://… или https://… (подписка)',
     'custom.adding': 'Добавление…',
     'custom.remove': 'Удалить {name}',
+    'custom.copyLink': 'Скопировать vless-ссылку для {name}',
     'custom.note':
       'Трафик по своим серверам не учитывается и не ограничен подпиской.',
     'custom.addFailed': 'Не удалось добавить сервер',

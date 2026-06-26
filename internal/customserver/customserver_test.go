@@ -94,6 +94,27 @@ func TestParseSubscription_PlainText(t *testing.T) {
 	}
 }
 
+func TestServer_LinkRoundTrip(t *testing.T) {
+	orig := "vless://11111111-2222-3333-4444-555555555555@example.com:443" +
+		"?security=reality&pbk=PUBKEY&sid=ab12&sni=www.microsoft.com&fp=firefox&flow=xtls-rprx-vision#My%20Node"
+	s, err := ParseVLESS(orig)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// Сгенерированная ссылка должна парситься обратно в эквивалентные поля.
+	link := s.Link()
+	s2, err := ParseVLESS(link)
+	if err != nil {
+		t.Fatalf("reparse generated link %q: %v", link, err)
+	}
+	if s2.UUID != s.UUID || s2.Host != s.Host || s2.Port != s.Port ||
+		s2.PublicKey != s.PublicKey || s2.ShortID != s.ShortID ||
+		s2.SNI != s.SNI || s2.Fingerprint != s.Fingerprint ||
+		s2.Flow != s.Flow || s2.Security != s.Security || s2.Name != s.Name {
+		t.Errorf("round-trip mismatch:\n orig: %+v\n got:  %+v\n link: %s", s, s2, link)
+	}
+}
+
 func TestServer_VLESSConfig(t *testing.T) {
 	s := Server{Host: "h", Port: 443, UUID: "u", Flow: "f", PublicKey: "p", ShortID: "s", SNI: "sn", Fingerprint: "chrome"}
 	c := s.VLESSConfig()

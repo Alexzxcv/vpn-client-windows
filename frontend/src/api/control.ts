@@ -163,6 +163,12 @@ export class ControlApi {
     });
   }
 
+  customServerLink(id: string): Promise<{ link: string }> {
+    return this.request<{ link: string }>(
+      `/api/custom-servers/${encodeURIComponent(id)}/link`,
+    );
+  }
+
   removeCustomServer(id: string): Promise<void> {
     return this.request<void>(`/api/custom-servers/${id}`, {
       method: 'DELETE',

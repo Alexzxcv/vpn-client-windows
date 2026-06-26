@@ -60,6 +60,7 @@ export const ConnectPage = observer(function ConnectPage() {
   const t = useT();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [customInput, setCustomInput] = useState('');
   const [adding, setAdding] = useState(false);
 
@@ -107,6 +108,19 @@ export const ConnectPage = observer(function ConnectPage() {
       await navigator.clipboard.writeText(curlHint);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard unavailable — ignore
+    }
+  }
+
+  // Copy the reconstructed vless:// link of a custom server to the clipboard.
+  async function copyCustomLink(id: string) {
+    const link = await conn.customServerLink(id);
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
     } catch {
       // clipboard unavailable — ignore
     }
@@ -325,15 +339,31 @@ export const ConnectPage = observer(function ConnectPage() {
                       {s.host}:{s.port}
                     </code>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => void conn.removeCustomServer(s.id)}
-                    disabled={locked}
-                    aria-label={t('custom.remove', { name: s.name })}
-                  >
-                    <X className="h-4 w-4" strokeWidth={1.5} />
-                  </Button>
+                  <div className="flex shrink-0 items-center">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => void copyCustomLink(s.id)}
+                      aria-label={t('custom.copyLink', { name: s.name })}
+                      title={t('custom.copyLink', { name: s.name })}
+                    >
+                      {copiedId === s.id ? (
+                        <Check className="h-4 w-4 text-ok" strokeWidth={1.5} />
+                      ) : (
+                        <Copy className="h-4 w-4" strokeWidth={1.5} />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => void conn.removeCustomServer(s.id)}
+                      disabled={locked}
+                      aria-label={t('custom.remove', { name: s.name })}
+                      title={t('custom.remove', { name: s.name })}
+                    >
+                      <X className="h-4 w-4" strokeWidth={1.5} />
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>

@@ -407,6 +407,16 @@ func (a *App) RemoveCustomServer(id string) error {
 	return a.cs.Remove(id)
 }
 
+// CustomServerLink reconstructs the vless:// link for a custom server (for the
+// "copy link" action). Returns false if no such server exists.
+func (a *App) CustomServerLink(id string) (string, bool) {
+	srv, ok := a.cs.Get(id)
+	if !ok {
+		return "", false
+	}
+	return srv.Link(), true
+}
+
 // customConfig returns the VLESS config for a custom-server location id (with
 // the "custom:" prefix), and true if serverID is a known custom server.
 func (a *App) customConfig(serverID *string) (backend.VLESSConfig, *LocationInfo, bool) {

@@ -260,6 +260,16 @@ export class ConnectionStore {
     }
   }
 
+  /** Fetch the reconstructed vless:// link for a custom server (for copy). */
+  async customServerLink(id: string): Promise<string | null> {
+    try {
+      const res = await this.api.customServerLink(id);
+      return res.link;
+    } catch {
+      return null;
+    }
+  }
+
   setSelectedServer(id: string): void {
     if (id !== this.selectedServerId) {
       // The ping window tracks the selected node; reset it on a switch and seed

@@ -159,6 +159,7 @@ func (s *Server) router() http.Handler {
 			// Кастомные (пользовательские) серверы: список/добавление/удаление.
 			authed.Get("/custom-servers", s.handleListCustomServers)
 			authed.Post("/custom-servers", s.handleAddCustomServer)
+			authed.Get("/custom-servers/{id}/link", s.handleCustomServerLink)
 			authed.Delete("/custom-servers/{id}", s.handleRemoveCustomServer)
 			authed.Get("/usage", s.handleUsage)
 			authed.Post("/connect", s.handleConnect)
@@ -350,6 +351,18 @@ func (s *Server) handleAddCustomServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"added": n})
+}
+
+// handleCustomServerLink returns the reconstructed vless:// link for a custom
+// server (the "copy link" action).
+func (s *Server) handleCustomServerLink(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	link, ok := s.app.CustomServerLink(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"link": link})
 }
 
 // handleRemoveCustomServer deletes a custom server by id.
