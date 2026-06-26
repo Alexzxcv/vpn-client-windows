@@ -2,6 +2,7 @@ import type {
   Bootstrap,
   ConnectResult,
   ConnMode,
+  CustomServer,
   Location,
   Me,
   Proxy,
@@ -13,16 +14,20 @@ import type {
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** Machine-readable error code from the body (e.g. "mfa_required"). */
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
 interface ApiErrorBody {
   error?: string;
   message?: string;
+  code?: string;
 }
 
 /**
@@ -74,14 +79,16 @@ export class ControlApi {
 
     if (!res.ok) {
       let msg = `Request failed (${res.status})`;
+      let code: string | undefined;
       try {
         const data = (await res.json()) as ApiErrorBody;
         if (data.error) msg = data.error;
         else if (data.message) msg = data.message;
+        code = data.code;
       } catch {
         // тело не JSON — оставляем дефолтное сообщение
       }
-      throw new ApiError(msg, res.status);
+      throw new ApiError(msg, res.status, code);
     }
 
     if (res.status === 204) {
@@ -113,10 +120,19 @@ export class ControlApi {
     return this.request<Status>('/api/status');
   }
 
-  login(login: string, password: string): Promise<{ ok: boolean }> {
+  login(
+    login: string,
+    password: string,
+    otp?: string,
+  ): Promise<{ ok: boolean }> {
+    const body: { login: string; password: string; otp?: string } = {
+      login,
+      password,
+    };
+    if (otp) body.otp = otp;
     return this.request<{ ok: boolean }>('/api/auth/login', {
       method: 'POST',
-      body: { login, password },
+      body,
     });
   }
 
@@ -134,6 +150,23 @@ export class ControlApi {
 
   usage(hours = 24): Promise<Usage> {
     return this.request<Usage>(`/api/usage?hours=${hours}`);
+  }
+
+  listCustomServers(): Promise<CustomServer[]> {
+    return this.request<CustomServer[]>('/api/custom-servers');
+  }
+
+  addCustomServer(input: string): Promise<{ added: number }> {
+    return this.request<{ added: number }>('/api/custom-servers', {
+      method: 'POST',
+      body: { input },
+    });
+  }
+
+  removeCustomServer(id: string): Promise<void> {
+    return this.request<void>(`/api/custom-servers/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   connect(serverId?: string, mode?: ConnMode): Promise<ConnectResult> {

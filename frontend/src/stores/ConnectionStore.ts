@@ -1,9 +1,11 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type { ControlApi } from '@/api/control';
+import { ApiError } from '@/api/control';
 import {
   AUTO_SERVER_ID,
   type ConnMode,
   type ConnState,
+  type CustomServer,
   type Location,
   type Proxy,
   type Status,
@@ -46,6 +48,11 @@ export class ConnectionStore {
   /** Latest traffic usage snapshot (totals + samples) from /api/usage. */
   usage: Usage | null = null;
 
+  /** User-supplied custom VLESS servers (also appear in `locations` as `custom:<id>`). */
+  customServers: CustomServer[] = [];
+  /** Last error from adding a custom server (parse error etc.); null when clear. */
+  customError: string | null = null;
+
   constructor(api: ControlApi, auth: AuthStore) {
     this.api = api;
     this.auth = auth;
@@ -84,6 +91,7 @@ export class ConnectionStore {
   async refreshMetrics(): Promise<void> {
     if (!this.api.hasSessionToken() || !this.auth.authenticated) return;
     await this.loadLocations();
+    await this.loadCustomServers();
     this.recordPingSample();
     await this.loadUsage();
   }
@@ -155,6 +163,7 @@ export class ConnectionStore {
       });
       if (status.authenticated) {
         if (this.locations.length === 0) void this.loadLocations();
+        if (this.customServers.length === 0) void this.loadCustomServers();
         if (status.connected) void this.loadProxy();
         else runInAction(() => { this.proxy = null; });
       }
@@ -192,6 +201,61 @@ export class ConnectionStore {
       });
     } catch {
       // некритично
+    }
+  }
+
+  async loadCustomServers(): Promise<void> {
+    try {
+      const servers = await this.api.listCustomServers();
+      runInAction(() => {
+        this.customServers = servers;
+      });
+    } catch {
+      // некритично — фоновая загрузка
+    }
+  }
+
+  /**
+   * Add a custom server from a `vless://` link or a subscription URL. On success
+   * reloads both the custom list and locations (so the new node shows up in the
+   * selector) and returns true; on failure stores the error message and returns
+   * false (the UI keeps the input so the user can fix it).
+   */
+  async addCustomServer(input: string): Promise<boolean> {
+    try {
+      await this.api.addCustomServer(input);
+      await Promise.all([this.loadCustomServers(), this.loadLocations()]);
+      runInAction(() => {
+        this.customError = null;
+      });
+      return true;
+    } catch (e) {
+      runInAction(() => {
+        this.customError =
+          e instanceof ApiError
+            ? e.message
+            : e instanceof Error
+              ? e.message
+              : 'Не удалось добавить сервер';
+      });
+      return false;
+    }
+  }
+
+  async removeCustomServer(id: string): Promise<void> {
+    try {
+      await this.api.removeCustomServer(id);
+      if (this.selectedServerId === `custom:${id}`) {
+        runInAction(() => {
+          this.selectedServerId = AUTO_SERVER_ID;
+        });
+      }
+      await Promise.all([this.loadCustomServers(), this.loadLocations()]);
+    } catch (e) {
+      runInAction(() => {
+        this.customError =
+          e instanceof Error ? e.message : 'Не удалось удалить сервер';
+      });
     }
   }
 

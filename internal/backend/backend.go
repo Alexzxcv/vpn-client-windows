@@ -202,12 +202,64 @@ type loginResp struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// Login authenticates with email/password and stores the returned tokens.
-func (c *Client) Login(ctx context.Context, login, password string) error {
+// ErrMFARequired is returned by Login when the account has two-factor auth (TOTP)
+// enabled and a valid OTP code was not supplied. The UI then prompts for the code
+// and retries Login with it.
+var ErrMFARequired = errors.New("mfa code required")
+
+// ErrInvalidCredentials is returned by Login on a wrong login/password (a 401 that
+// is NOT an MFA challenge).
+var ErrInvalidCredentials = errors.New("invalid credentials")
+
+// Login authenticates with login/password (and an optional TOTP otp when the
+// account has 2FA) and stores the returned tokens.
+//
+// It does NOT go through the generic doJSON path: that collapses every 401 to a
+// bare "unauthorized" and discards the body, so it cannot tell an MFA challenge
+// (HTTP 401, code "mfa_required") apart from a wrong password. Here we read the
+// error body and map code "mfa_required" → ErrMFARequired so the UI can ask for
+// the code.
+func (c *Client) Login(ctx context.Context, login, password, otp string) error {
 	body := map[string]string{"login": login, "password": password}
-	var out loginResp
-	if err := c.doJSON(ctx, http.MethodPost, "/auth/login", body, &out, false); err != nil {
+	if otp != "" {
+		body["otp"] = otp
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("login: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/auth/login", bytes.NewReader(b))
+	if err != nil {
+		return fmt.Errorf("login: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
 		return fmt.Errorf("login: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var e struct {
+			Error string `json:"error"`
+			Code  string `json:"code"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		if e.Code == "mfa_required" {
+			return ErrMFARequired
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			return ErrInvalidCredentials
+		}
+		return fmt.Errorf("login: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+
+	var out loginResp
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return fmt.Errorf("login: decode response: %w", err)
 	}
 	if out.AccessToken == "" {
 		return errors.New("login: empty access_token in response")

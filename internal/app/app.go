@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"github.com/Alexzxcv/vpn-client-windows/internal/autostart"
 	"github.com/Alexzxcv/vpn-client-windows/internal/backend"
 	"github.com/Alexzxcv/vpn-client-windows/internal/buildinfo"
+	"github.com/Alexzxcv/vpn-client-windows/internal/customserver"
 	"github.com/Alexzxcv/vpn-client-windows/internal/deviceid"
 	"github.com/Alexzxcv/vpn-client-windows/internal/elevation"
 	"github.com/Alexzxcv/vpn-client-windows/internal/killswitch"
@@ -57,6 +60,11 @@ const (
 // /vpn/config request is sent WITHOUT a server_id so the backend chooses.
 const AutoServerID = "auto"
 
+// CustomPrefix помечает location-id пользовательского (кастомного) сервера.
+// Connect с таким id подключается напрямую по локальному конфигу, минуя backend
+// (без регистрации устройства, /vpn/config, учёта трафика и проверок подписки).
+const CustomPrefix = customserver.IDPrefix
+
 // Auto-reconnect tuning: how many attempts and the backoff schedule.
 const (
 	reconnectMaxAttempts = 5
@@ -97,6 +105,7 @@ type App struct {
 	sbm     *singbox.Manager
 	id      *deviceid.Identity
 	set     *settings.Store
+	cs      *customserver.Store
 	ks      *killswitch.Guard
 	upd     *updater.Updater
 	ping    *pinger
@@ -157,6 +166,7 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Ma
 		sbm:         sbm,
 		id:          id,
 		set:         set,
+		cs:          customserver.Load(),
 		ks:          killswitch.New(log),
 		upd:         updater.New(buildinfo.Version, nil),
 		ping:        newPinger(),
@@ -231,9 +241,12 @@ func (a *App) SaveSettings(s settings.Settings) (settings.Settings, error) {
 	return cur, nil
 }
 
-// Login authenticates against the backend.
-func (a *App) Login(ctx context.Context, email, password string) error {
-	if err := a.be.Login(ctx, email, password); err != nil {
+// Login authenticates against the backend. otp is the TOTP code, required only
+// when the account has 2FA enabled (empty otherwise). backend.ErrMFARequired and
+// backend.ErrInvalidCredentials are passed through unwrapped-by-errors.Is so the
+// control layer can map them to specific UI responses.
+func (a *App) Login(ctx context.Context, login, password, otp string) error {
+	if err := a.be.Login(ctx, login, password, otp); err != nil {
 		return fmt.Errorf("app login: %w", err)
 	}
 	a.log.Info("login ok")
@@ -286,15 +299,127 @@ type LocationView struct {
 // stable, real number in every connection state — the behaviour users had before
 // the client-ping experiment. PingMs is left 0 so the UI falls back to LatencyMs.
 func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
+	// Backend-ноды. Ошибку НЕ пробрасываем как фатальную: кастомные серверы
+	// должны работать независимо от подписки/доступности backend — поэтому при
+	// сбое просто отдаём один лишь список кастомных.
 	locs, err := a.be.Locations(ctx)
 	if err != nil {
-		return nil, err
+		a.log.Warn("locations: backend unavailable; serving custom servers only",
+			slog.String("err", err.Error()))
+		locs = nil
 	}
-	views := make([]LocationView, len(locs))
-	for i, l := range locs {
-		views[i] = LocationView{Location: l}
+	views := make([]LocationView, 0, len(locs))
+	for _, l := range locs {
+		views = append(views, LocationView{Location: l})
+	}
+	// Кастомные (пользовательские) серверы — с префиксом id "custom:" и меткой
+	// локации, чтобы UI и connect-флоу отличали их от backend-нод.
+	for _, cs := range a.cs.List() {
+		views = append(views, LocationView{Location: backend.Location{
+			ID:       CustomPrefix + cs.ID,
+			Name:     cs.Name,
+			Location: "Свой сервер",
+			Host:     cs.Host,
+			Port:     cs.Port,
+		}})
 	}
 	return views, nil
+}
+
+// ListCustomServers returns the user's manually-added custom servers (for the UI
+// management list). Secrets (uuid/keys) are intentionally NOT exposed here.
+type CustomServerView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
+}
+
+// ListCustomServers returns the custom servers as safe views (no secrets).
+func (a *App) ListCustomServers() []CustomServerView {
+	list := a.cs.List()
+	out := make([]CustomServerView, 0, len(list))
+	for _, s := range list {
+		out = append(out, CustomServerView{ID: s.ID, Name: s.Name, Host: s.Host, Port: s.Port})
+	}
+	return out
+}
+
+// AddCustomServer adds a custom server from user input: an http(s) URL is
+// fetched and imported as a subscription (one or many vless:// links), otherwise
+// the input is parsed as a single vless:// link. Returns the number added.
+func (a *App) AddCustomServer(ctx context.Context, input string) (int, error) {
+	in := strings.TrimSpace(input)
+	if in == "" {
+		return 0, fmt.Errorf("пустой ввод")
+	}
+	if strings.HasPrefix(in, "http://") || strings.HasPrefix(in, "https://") {
+		servers, err := a.fetchSubscription(ctx, in)
+		if err != nil {
+			return 0, err
+		}
+		if len(servers) == 0 {
+			return 0, fmt.Errorf("в подписке не найдено vless-серверов")
+		}
+		if err := a.cs.AddAll(servers); err != nil {
+			return 0, err
+		}
+		a.log.Info("custom servers imported from subscription", slog.Int("count", len(servers)))
+		return len(servers), nil
+	}
+	srv, err := customserver.ParseVLESS(in)
+	if err != nil {
+		return 0, err
+	}
+	if err := a.cs.Add(srv); err != nil {
+		return 0, err
+	}
+	a.log.Info("custom server added")
+	return 1, nil
+}
+
+// fetchSubscription downloads a subscription URL and parses its vless:// entries.
+// Uses a short-lived plain HTTP client (the user's own URL, not our backend).
+func (a *App) fetchSubscription(ctx context.Context, rawURL string) ([]customserver.Server, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("подписка: неверный URL: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("подписка: запрос не удался: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("подписка: код ответа %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
+	if err != nil {
+		return nil, fmt.Errorf("подписка: чтение тела: %w", err)
+	}
+	return customserver.ParseSubscription(string(body)), nil
+}
+
+// RemoveCustomServer deletes a custom server by id.
+func (a *App) RemoveCustomServer(id string) error {
+	return a.cs.Remove(id)
+}
+
+// customConfig returns the VLESS config for a custom-server location id (with
+// the "custom:" prefix), and true if serverID is a known custom server.
+func (a *App) customConfig(serverID *string) (backend.VLESSConfig, *LocationInfo, bool) {
+	if serverID == nil || !strings.HasPrefix(*serverID, CustomPrefix) {
+		return backend.VLESSConfig{}, nil, false
+	}
+	id := strings.TrimPrefix(*serverID, CustomPrefix)
+	srv, ok := a.cs.Get(id)
+	if !ok {
+		return backend.VLESSConfig{}, nil, false
+	}
+	loc := &LocationInfo{ID: *serverID, Name: srv.Name}
+	return srv.VLESSConfig(), loc, true
 }
 
 // bestServerByPing returns the id of the node with the lowest MEASURED user
@@ -470,6 +595,17 @@ func (a *App) connect(ctx context.Context, serverID *string, mode Mode, manual b
 	a.setMode(mode)
 	a.setState(StateConnecting, nil, "")
 
+	// Кастомный (пользовательский) сервер: подключаемся напрямую по локальному
+	// конфигу, МИНУЯ backend — без регистрации устройства, без /vpn/config, без
+	// учёта трафика и проверок подписки. Рефреша нет (expiry нулевой).
+	if cfg, loc, ok := a.customConfig(serverID); ok {
+		a.setExpiry(time.Time{})
+		if mode == ModeTUN {
+			return a.connectTUN(ctx, cfg, serverID, loc)
+		}
+		return a.connectProxy(ctx, cfg, serverID, loc)
+	}
+
 	if err := a.ensureRegistered(ctx); err != nil {
 		return a.fail(err)
 	}
@@ -481,9 +617,9 @@ func (a *App) connect(ctx context.Context, serverID *string, mode Mode, manual b
 	a.setExpiry(cfg.ExpiresAt)
 
 	if mode == ModeTUN {
-		return a.connectTUN(ctx, cfg, serverID)
+		return a.connectTUN(ctx, cfg, serverID, nil)
 	}
-	return a.connectProxy(ctx, cfg, serverID)
+	return a.connectProxy(ctx, cfg, serverID, nil)
 }
 
 // ensureRegistered registers the device public key with the backend (idempotent
@@ -506,7 +642,7 @@ func (a *App) ensureRegistered(ctx context.Context) error {
 }
 
 // connectProxy brings up xray + the Windows system proxy (existing behaviour).
-func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverID *string) (State, error) {
+func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverID *string, loc *LocationInfo) (State, error) {
 	// Если был активен TUN-движок (смена режима без disconnect) — остановим его.
 	if a.sbm != nil {
 		_ = a.sbm.Stop()
@@ -549,7 +685,10 @@ func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverI
 		}
 	}
 
-	a.setState(StateConnected, locFromServerID(serverID), "")
+	if loc == nil {
+		loc = locFromServerID(serverID)
+	}
+	a.setState(StateConnected, loc, "")
 	a.startRefreshTimer()
 	a.log.Info("connected", slog.String("mode", string(ModeProxy)),
 		slog.Int("socks", a.socksPort), slog.Int("http", a.httpPort))
@@ -558,7 +697,7 @@ func (a *App) connectProxy(ctx context.Context, cfg backend.VLESSConfig, serverI
 
 // connectTUN brings up sing-box with a full device-wide TUN. No system proxy is
 // set: routing is handled by the TUN interface.
-func (a *App) connectTUN(ctx context.Context, cfg backend.VLESSConfig, serverID *string) (State, error) {
+func (a *App) connectTUN(ctx context.Context, cfg backend.VLESSConfig, serverID *string, loc *LocationInfo) (State, error) {
 	// Если был активен proxy-режим (смена режима без disconnect) — остановим xray
 	// и снимем системный прокси, иначе он останется поверх TUN.
 	_ = a.xm.Stop()
@@ -602,7 +741,10 @@ func (a *App) connectTUN(ctx context.Context, cfg backend.VLESSConfig, serverID 
 		}
 	}
 
-	a.setState(StateConnected, locFromServerID(serverID), "")
+	if loc == nil {
+		loc = locFromServerID(serverID)
+	}
+	a.setState(StateConnected, loc, "")
 	a.startRefreshTimer()
 	a.log.Info("connected", slog.String("mode", string(ModeTUN)))
 	return StateConnected, nil
@@ -689,6 +831,11 @@ func (a *App) maybeRefresh() {
 	a.mu.Unlock()
 
 	if !connected || already || exp.IsZero() {
+		return
+	}
+	// Кастомные серверы не рефрешим: у них нет credential/expiry и обращаться к
+	// backend (который учитывает трафик) для них нельзя.
+	if serverID != nil && strings.HasPrefix(*serverID, CustomPrefix) {
 		return
 	}
 	if time.Until(exp) > refreshLeadTime {

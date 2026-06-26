@@ -11,6 +11,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -155,6 +156,10 @@ func (s *Server) router() http.Handler {
 			authed.Post("/auth/logout", s.handleLogout)
 			authed.Get("/me", s.handleMe)
 			authed.Get("/locations", s.handleLocations)
+			// Кастомные (пользовательские) серверы: список/добавление/удаление.
+			authed.Get("/custom-servers", s.handleListCustomServers)
+			authed.Post("/custom-servers", s.handleAddCustomServer)
+			authed.Delete("/custom-servers/{id}", s.handleRemoveCustomServer)
 			authed.Get("/usage", s.handleUsage)
 			authed.Post("/connect", s.handleConnect)
 			authed.Post("/disconnect", s.handleDisconnect)
@@ -261,6 +266,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Login    string `json:"login"` // email или username
 		Email    string `json:"email"` // обратная совместимость
 		Password string `json:"password"`
+		OTP      string `json:"otp"` // TOTP-код, если у аккаунта включён 2FA
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -270,8 +276,23 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if login == "" {
 		login = body.Email
 	}
-	if err := s.app.Login(r.Context(), login, body.Password); err != nil {
-		writeErr(w, http.StatusUnauthorized, "login failed")
+	if err := s.app.Login(r.Context(), login, body.Password, strings.TrimSpace(body.OTP)); err != nil {
+		switch {
+		case errors.Is(err, backend.ErrMFARequired):
+			// Аккаунт с 2FA: просим у UI код. Тот же код "mfa_required", что и в
+			// веб-панели — UI показывает поле для TOTP и повторяет логин с otp.
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error": "mfa code required",
+				"code":  "mfa_required",
+			})
+		case errors.Is(err, backend.ErrInvalidCredentials):
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error": "invalid login or password",
+				"code":  "invalid_credentials",
+			})
+		default:
+			writeErr(w, http.StatusUnauthorized, "login failed")
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -301,6 +322,48 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 		locs = []app.LocationView{}
 	}
 	writeJSON(w, http.StatusOK, locs)
+}
+
+// handleListCustomServers returns the user's manually-added custom servers.
+func (s *Server) handleListCustomServers(w http.ResponseWriter, r *http.Request) {
+	list := s.app.ListCustomServers()
+	if list == nil {
+		list = []app.CustomServerView{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// handleAddCustomServer adds a custom server from a vless:// link or imports a
+// subscription URL (http(s)). Returns how many were added.
+func (s *Server) handleAddCustomServer(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Input string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	n, err := s.app.AddCustomServer(r.Context(), body.Input)
+	if err != nil {
+		// Parse/import errors are user-facing (e.g. "в ссылке нет UUID").
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"added": n})
+}
+
+// handleRemoveCustomServer deletes a custom server by id.
+func (s *Server) handleRemoveCustomServer(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, "missing id")
+		return
+	}
+	if err := s.app.RemoveCustomServer(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "remove failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleUsage returns the current traffic totals, the optional free-daily

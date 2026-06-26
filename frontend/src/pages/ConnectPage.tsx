@@ -19,6 +19,7 @@ import { useConnection, useAuth, useUpdate } from '@/stores/context';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, Eyebrow } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -58,6 +59,8 @@ export const ConnectPage = observer(function ConnectPage() {
   const update = useUpdate();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [customInput, setCustomInput] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const socks = conn.proxy?.socks ?? '127.0.0.1:10800';
   const curlHint = `curl --socks5 ${socks} https://ifconfig.me`;
@@ -110,6 +113,18 @@ export const ConnectPage = observer(function ConnectPage() {
 
   const errorText =
     conn.actionError ?? (conn.state === 'error' ? conn.lastError : null);
+
+  async function addCustom() {
+    const value = customInput.trim();
+    if (!value || adding) return;
+    setAdding(true);
+    try {
+      const ok = await conn.addCustomServer(value);
+      if (ok) setCustomInput('');
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -261,6 +276,75 @@ export const ConnectPage = observer(function ConnectPage() {
             </SelectContent>
           </Select>
         </label>
+
+        {/* custom (user-supplied) servers */}
+        <Card className="flex flex-col gap-2 p-2.5">
+          <Eyebrow>Свои серверы</Eyebrow>
+
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void addCustom();
+                }
+              }}
+              placeholder="vless://… или https://… (подписка)"
+              disabled={locked || adding}
+              className="h-8 text-sm"
+            />
+            <Button
+              size="sm"
+              onClick={() => void addCustom()}
+              disabled={locked || adding || customInput.trim() === ''}
+            >
+              {adding ? 'Добавление…' : 'Добавить'}
+            </Button>
+          </div>
+
+          {conn.customError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-sm border border-alert/40 bg-alert/10 px-2.5 py-1.5 text-xs text-alert"
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+              <span className="break-words">{conn.customError}</span>
+            </div>
+          )}
+
+          {conn.customServers.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {conn.customServers.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between gap-2 rounded-sm bg-void px-2 py-1.5"
+                >
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm text-frost">{s.name}</span>
+                    <code className="truncate font-mono text-2xs text-mute">
+                      {s.host}:{s.port}
+                    </code>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void conn.removeCustomServer(s.id)}
+                    disabled={locked}
+                    aria-label={`Удалить ${s.name}`}
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.5} />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <p className="text-2xs text-mute">
+            Трафик по своим серверам не учитывается и не ограничен подпиской.
+          </p>
+        </Card>
 
         {/* instrument cells */}
         <div className="grid grid-cols-2 gap-2">

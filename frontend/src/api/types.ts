@@ -50,6 +50,14 @@ export interface Proxy {
   http?: string;
 }
 
+/** User-supplied custom VLESS server (traffic not metered / not subscription-limited). */
+export interface CustomServer {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+}
+
 /** Free daily traffic allowance (bytes), mirrors backend.FreeDaily. */
 export interface FreeDaily {
   limit_bytes: number;

@@ -12,10 +12,15 @@ export const LoginPage = observer(function LoginPage() {
   const navigate = useNavigate();
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const ok = await auth.login(loginId.trim(), password);
+    const ok = await auth.login(
+      loginId.trim(),
+      password,
+      auth.mfaRequired ? otp.trim() : undefined,
+    );
     if (ok) {
       navigate('/', { replace: true });
     }
@@ -54,6 +59,28 @@ export const LoginPage = observer(function LoginPage() {
           />
         </label>
 
+        {auth.mfaRequired && (
+          <label className="flex flex-col gap-1.5">
+            <Eyebrow>Код подтверждения (2FA)</Eyebrow>
+            <Input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              maxLength={6}
+              value={otp}
+              onChange={(e) =>
+                setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
+              }
+              required
+              autoFocus
+            />
+            <span className="text-2xs text-mute">
+              Введите 6-значный код из приложения-аутентификатора.
+            </span>
+          </label>
+        )}
+
         {auth.loginError && (
           <div
             role="alert"
@@ -66,7 +93,11 @@ export const LoginPage = observer(function LoginPage() {
 
         <Button type="submit" disabled={auth.loggingIn} className="mt-1">
           <LogIn className="h-4 w-4" strokeWidth={1.5} />
-          {auth.loggingIn ? 'Signing in…' : 'Sign in'}
+          {auth.loggingIn
+            ? 'Signing in…'
+            : auth.mfaRequired
+              ? 'Подтвердить'
+              : 'Sign in'}
         </Button>
       </form>
 

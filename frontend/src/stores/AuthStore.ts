@@ -18,6 +18,8 @@ export class AuthStore {
 
   loggingIn = false;
   loginError: string | null = null;
+  /** Account has 2FA: the UI must collect a TOTP code and retry login with it. */
+  mfaRequired = false;
 
   constructor(api: ControlApi) {
     this.api = api;
@@ -63,29 +65,43 @@ export class AuthStore {
     }
   }
 
-  async login(email: string, password: string): Promise<boolean> {
+  async login(
+    email: string,
+    password: string,
+    otp?: string,
+  ): Promise<boolean> {
     this.loggingIn = true;
     this.loginError = null;
     try {
-      await this.api.login(email, password);
+      await this.api.login(email, password, otp);
       runInAction(() => {
         this.authenticated = true;
         this.loggingIn = false;
+        this.mfaRequired = false;
       });
       void this.loadMe();
       return true;
     } catch (e) {
       runInAction(() => {
-        this.loginError =
-          e instanceof ApiError
-            ? e.message
-            : e instanceof Error
-              ? e.message
-              : 'Login failed';
+        // 2FA: backend просит TOTP-код. Показываем поле кода вместо ошибки
+        // (на первом шаге, когда otp ещё не вводили).
+        if (e instanceof ApiError && e.code === 'mfa_required') {
+          this.mfaRequired = true;
+          // Если код уже вводили и он неверный — сообщаем; иначе молча просим код.
+          this.loginError = otp ? 'Неверный код подтверждения' : null;
+        } else {
+          this.loginError =
+            e instanceof Error ? e.message : 'Login failed';
+        }
         this.loggingIn = false;
       });
       return false;
     }
+  }
+
+  /** Reset the 2FA prompt (e.g. when the user edits login/password). */
+  resetMfa(): void {
+    this.mfaRequired = false;
   }
 
   async logout(): Promise<void> {
