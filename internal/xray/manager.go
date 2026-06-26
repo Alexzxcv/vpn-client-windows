@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,9 +95,38 @@ type Manager struct {
 	// от аварийного падения и не дёргать onExit при намеренном kill.
 	gen int
 
+	// done закрывается, когда текущий xray-процесс завершился. WaitReady ждёт на
+	// нём, чтобы упасть сразу при раннем выходе xray, не выжидая весь таймаут.
+	done chan struct{}
+
 	// onExit вызывается, когда xray-процесс завершился НЕ по команде Stop
 	// (т.е. упал сам). Используется app для авто-переподключения.
 	onExit func()
+
+	// tailMu/tail хранят последние строки stderr xray для диагностики (видны
+	// в ошибке connect, даже когда подробный лог xray уходит в Debug).
+	tailMu sync.Mutex
+	tail   []string
+}
+
+// maxTailLines — сколько последних строк stderr xray держим для диагностики.
+const maxTailLines = 25
+
+// appendTail добавляет строку stderr в кольцевой буфер диагностики.
+func (m *Manager) appendTail(line string) {
+	m.tailMu.Lock()
+	m.tail = append(m.tail, line)
+	if len(m.tail) > maxTailLines {
+		m.tail = m.tail[len(m.tail)-maxTailLines:]
+	}
+	m.tailMu.Unlock()
+}
+
+// Tail returns the recent xray stderr lines joined for an error/diagnostic.
+func (m *Manager) Tail() string {
+	m.tailMu.Lock()
+	defer m.tailMu.Unlock()
+	return strings.TrimSpace(strings.Join(m.tail, " | "))
 }
 
 // NewManager creates a Manager. If log is nil the default slog logger is used.
@@ -207,21 +237,37 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 	myGen := m.gen
 	onExit := m.onExit
 
-	go pipeLines(stdout, m.log, "xray.stdout")
-	go pipeLines(stderr, m.log, "xray.stderr")
+	// Fresh diagnostics buffer + exit channel for this process.
+	m.tailMu.Lock()
+	m.tail = nil
+	m.tailMu.Unlock()
+	done := make(chan struct{})
+	m.done = done
+
+	go pipeLines(stdout, m.log, "xray.stdout", nil)
+	go pipeLines(stderr, m.log, "xray.stderr", m.appendTail)
 	go func() {
 		err := cmd.Wait()
-		if err != nil {
-			m.log.Warn("xray process exited", slog.String("err", err.Error()))
-		} else {
-			m.log.Info("xray process exited")
-		}
+		close(done) // unblock WaitReady on early exit
 		// Determine whether this was a planned stop or a crash: if our gen is
 		// still the current one, nobody called Stop/Start in the meantime, so
 		// the process died on its own.
 		m.mu.Lock()
 		crashed := m.gen == myGen
 		m.mu.Unlock()
+		if err != nil {
+			// On a crash surface the captured stderr tail at Warn so the reason
+			// (e.g. a bad config field) is visible without Debug logging.
+			attrs := []any{slog.String("err", err.Error())}
+			if crashed {
+				if tail := m.Tail(); tail != "" {
+					attrs = append(attrs, slog.String("stderr", tail))
+				}
+			}
+			m.log.Warn("xray process exited", attrs...)
+		} else {
+			m.log.Info("xray process exited")
+		}
 		if crashed && onExit != nil {
 			onExit()
 		}
@@ -232,11 +278,17 @@ func (m *Manager) Start(ctx context.Context, configJSON []byte) error {
 	return nil
 }
 
-func pipeLines(r io.Reader, log *slog.Logger, tag string) {
+// pipeLines streams a reader line-by-line to the Debug log; if onLine is set,
+// each line is also passed to it (used to keep a stderr tail for diagnostics).
+func pipeLines(r io.Reader, log *slog.Logger, tag string, onLine func(string)) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		log.Debug(tag, slog.String("line", sc.Text()))
+		line := sc.Text()
+		log.Debug(tag, slog.String("line", line))
+		if onLine != nil {
+			onLine(line)
+		}
 	}
 }
 
@@ -266,9 +318,14 @@ func (m *Manager) stopLocked() error {
 }
 
 // WaitReady polls a TCP connection to the SOCKS port until it accepts a
-// connection or ctx is done.
+// connection, the xray process exits, or ctx is done. On failure it includes the
+// captured xray stderr tail so the actual reason (e.g. a rejected config field)
+// is surfaced instead of a bare timeout.
 func (m *Manager) WaitReady(ctx context.Context, socksPort int) error {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(socksPort))
+	m.mu.Lock()
+	done := m.done
+	m.mu.Unlock()
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -280,7 +337,16 @@ func (m *Manager) WaitReady(ctx context.Context, socksPort int) error {
 			return nil
 		}
 		select {
+		case <-done:
+			// xray exited before the SOCKS port came up — report why.
+			if tail := m.Tail(); tail != "" {
+				return fmt.Errorf("xray exited before socks was ready on %s: %s", addr, tail)
+			}
+			return fmt.Errorf("xray exited before socks was ready on %s", addr)
 		case <-ctx.Done():
+			if tail := m.Tail(); tail != "" {
+				return fmt.Errorf("xray socks not ready on %s: %w (xray: %s)", addr, ctx.Err(), tail)
+			}
 			return fmt.Errorf("xray socks not ready on %s: %w", addr, ctx.Err())
 		case <-ticker.C:
 		}

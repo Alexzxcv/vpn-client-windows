@@ -27,6 +27,15 @@ func GenerateConfigWith(cfg backend.VLESSConfig, socksPort, httpPort int, opts r
 		return nil, fmt.Errorf("incomplete vless config (host/port/uuid required)")
 	}
 
+	// Reality требует валидный uTLS-fingerprint. Если backend/кастомный конфиг не
+	// задал его, подставляем "chrome" (как делает sing-box). Без этого xray НЕ
+	// стартует с пустым fingerprint — SOCKS-порт не открывается и connect падает
+	// с "context deadline exceeded", хотя TUN (sing-box) на том же узле работает.
+	fingerprint := cfg.Fingerprint
+	if fingerprint == "" {
+		fingerprint = "chrome"
+	}
+
 	conf := map[string]any{
 		"log": map[string]any{
 			"loglevel": "warning",
@@ -78,7 +87,7 @@ func GenerateConfigWith(cfg backend.VLESSConfig, socksPort, httpPort int, opts r
 					"security": "reality",
 					"realitySettings": map[string]any{
 						"serverName":  cfg.SNI,
-						"fingerprint": cfg.Fingerprint,
+						"fingerprint": fingerprint,
 						"publicKey":   cfg.PublicKey,
 						"shortId":     cfg.ShortID,
 					},

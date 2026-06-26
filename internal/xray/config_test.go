@@ -106,3 +106,28 @@ func TestGenerateConfigValidation(t *testing.T) {
 		t.Fatal("expected error for incomplete config")
 	}
 }
+
+// An empty fingerprint must default to "chrome": xray's Reality rejects an empty
+// uTLS fingerprint and would not start (SOCKS never opens), even though sing-box
+// tolerates it. Regression test for the proxy "context deadline exceeded" bug.
+func TestGenerateConfig_DefaultsEmptyFingerprint(t *testing.T) {
+	cfg := backend.VLESSConfig{
+		Host: "example.com", Port: 443,
+		UUID: "11111111-2222-3333-4444-555555555555",
+		SNI:  "www.microsoft.com", PublicKey: "PUBKEY", ShortID: "abcd",
+		// Fingerprint intentionally empty.
+	}
+	raw, err := GenerateConfig(cfg, 10808, 10809)
+	if err != nil {
+		t.Fatalf("GenerateConfig: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	out0 := parsed["outbounds"].([]any)[0].(map[string]any)
+	rs := out0["streamSettings"].(map[string]any)["realitySettings"].(map[string]any)
+	if rs["fingerprint"] != "chrome" {
+		t.Fatalf("empty fingerprint = %v, want default %q", rs["fingerprint"], "chrome")
+	}
+}
