@@ -12,6 +12,7 @@ import {
   type Usage,
 } from '@/api/types';
 import type { AuthStore } from './AuthStore';
+import { i18n } from './I18nStore';
 
 const POLL_INTERVAL_MS = 2000;
 /** How often we re-measure latency (locations) and refresh traffic usage. */
@@ -236,7 +237,7 @@ export class ConnectionStore {
             ? e.message
             : e instanceof Error
               ? e.message
-              : 'Не удалось добавить сервер';
+              : i18n.t('custom.addFailed');
       });
       return false;
     }
@@ -254,7 +255,7 @@ export class ConnectionStore {
     } catch (e) {
       runInAction(() => {
         this.customError =
-          e instanceof Error ? e.message : 'Не удалось удалить сервер';
+          e instanceof Error ? e.message : i18n.t('custom.removeFailed');
       });
     }
   }
@@ -289,7 +290,8 @@ export class ConnectionStore {
       await this.refreshStatus();
     } catch (e) {
       runInAction(() => {
-        this.actionError = e instanceof Error ? e.message : 'Connect failed';
+        this.actionError =
+          e instanceof Error ? e.message : i18n.t('connect.connectFailed');
       });
     } finally {
       runInAction(() => {
@@ -310,7 +312,8 @@ export class ConnectionStore {
       await this.refreshStatus();
     } catch (e) {
       runInAction(() => {
-        this.actionError = e instanceof Error ? e.message : 'Disconnect failed';
+        this.actionError =
+          e instanceof Error ? e.message : i18n.t('connect.disconnectFailed');
       });
     } finally {
       runInAction(() => {

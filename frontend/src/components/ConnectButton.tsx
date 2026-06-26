@@ -1,6 +1,8 @@
+import { observer } from 'mobx-react-lite';
 import { Loader2, Power } from 'lucide-react';
 import type { ConnMode, ConnState } from '@/api/types';
 import { cn } from '@/lib/utils';
+import { i18n } from '@/stores/I18nStore';
 
 interface Props {
   state: ConnState;
@@ -11,26 +13,33 @@ interface Props {
   onDisconnect: () => void;
 }
 
-const LABEL: Record<ConnState, string> = {
-  disconnected: 'CONNECT',
-  connecting: 'LINKING',
-  connected: 'DISCONNECT',
-  error: 'RETRY',
+const LABEL_KEY: Record<ConnState, string> = {
+  disconnected: 'status.connect',
+  connecting: 'status.linking',
+  connected: 'status.disconnect',
+  error: 'status.retry',
 };
 
 /** Strict round connect control with state coloring + connected glow. */
-export function ConnectButton({ state, mode, busy, onConnect, onDisconnect }: Props) {
+export const ConnectButton = observer(function ConnectButton({
+  state,
+  mode,
+  busy,
+  onConnect,
+  onDisconnect,
+}: Props) {
   const isConnected = state === 'connected';
   const isConnecting = state === 'connecting';
   const disabled = busy || isConnecting;
   const tun = mode === 'tun';
+  const label = i18n.t(LABEL_KEY[state]);
 
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={isConnected ? onDisconnect : onConnect}
-      aria-label={LABEL[state]}
+      aria-label={label}
       className={cn(
         'group mx-auto flex h-[124px] w-[124px] flex-col items-center justify-center gap-1.5 rounded-full',
         'border-2 bg-graphite transition-[transform,border-color,box-shadow] duration-150',
@@ -50,8 +59,8 @@ export function ConnectButton({ state, mode, busy, onConnect, onDisconnect }: Pr
         <Power className="h-8 w-8" strokeWidth={1.5} />
       )}
       <span className="font-mono text-2xs uppercase tracking-eyebrow">
-        {LABEL[state]}
+        {label}
       </span>
     </button>
   );
-}
+});

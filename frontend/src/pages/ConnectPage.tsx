@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { AUTO_SERVER_ID, type ConnMode } from '@/api/types';
-import { useConnection, useAuth, useUpdate } from '@/stores/context';
+import { useConnection, useAuth, useUpdate, useT } from '@/stores/context';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, Eyebrow } from '@/components/ui/card';
@@ -57,6 +57,7 @@ export const ConnectPage = observer(function ConnectPage() {
   const conn = useConnection();
   const auth = useAuth();
   const update = useUpdate();
+  const t = useT();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [customInput, setCustomInput] = useState('');
@@ -97,8 +98,8 @@ export const ConnectPage = observer(function ConnectPage() {
   const tunNeedsElevation = conn.selectedMode === 'tun' && !auth.elevated;
 
   const modes: { id: ConnMode; label: string }[] = [
-    { id: 'proxy', label: 'Proxy' },
-    { id: 'tun', label: 'Full tunnel' },
+    { id: 'proxy', label: t('connect.modeProxy') },
+    { id: 'tun', label: t('connect.modeTun') },
   ];
 
   async function copyCurl() {
@@ -134,7 +135,7 @@ export const ConnectPage = observer(function ConnectPage() {
           <div className="flex items-center gap-2 rounded-sm border border-ion/40 bg-ion/10 px-2.5 py-1.5 text-xs text-frost">
             <ArrowUpCircle className="h-4 w-4 shrink-0 text-ion" strokeWidth={1.5} />
             <span className="min-w-0 flex-1 break-words">
-              Доступно обновление {update.latestVersion}
+              {t('update.available', { version: update.latestVersion })}
               {update.error ? ` — ${update.error}` : ''}
             </span>
             <Button
@@ -142,12 +143,12 @@ export const ConnectPage = observer(function ConnectPage() {
               onClick={() => void update.apply()}
               disabled={update.applying}
             >
-              {update.applying ? 'Загрузка…' : 'Обновить'}
+              {update.applying ? t('update.downloading') : t('update.apply')}
             </Button>
             <button
               type="button"
               onClick={() => update.dismiss()}
-              aria-label="Dismiss update"
+              aria-label={t('update.dismiss')}
               className="text-mute hover:text-frost"
             >
               <X className="h-4 w-4" strokeWidth={1.5} />
@@ -165,7 +166,9 @@ export const ConnectPage = observer(function ConnectPage() {
                   conn.mode === 'tun' ? 'text-ion' : 'text-ok'
                 }`}
               >
-                {conn.mode === 'tun' ? 'Full tunnel' : 'Proxy'}
+                {conn.mode === 'tun'
+                  ? t('connect.modeTun')
+                  : t('connect.modeProxy')}
               </span>
             )}
           </div>
@@ -180,18 +183,18 @@ export const ConnectPage = observer(function ConnectPage() {
         <Card className="bg-slate px-1 py-2">
           <RouteMap
             state={conn.state}
-            toName={isAuto ? 'Auto (best)' : (selected?.name ?? '—')}
-            toSub={isAuto ? 'lowest latency' : selected?.location}
+            toName={isAuto ? t('connect.autoName') : (selected?.name ?? '—')}
+            toSub={isAuto ? t('connect.autoSub') : selected?.location}
             pingMs={pingMs > 0 ? pingMs : undefined}
           />
         </Card>
 
         {/* tunnelling mode toggle */}
         <div className="flex flex-col gap-1.5">
-          <Eyebrow>Mode</Eyebrow>
+          <Eyebrow>{t('connect.mode')}</Eyebrow>
           <div
             role="radiogroup"
-            aria-label="Tunnelling mode"
+            aria-label={t('connect.mode')}
             className="grid grid-cols-2 gap-1 rounded-sm border border-edge bg-void p-1"
           >
             {modes.map((m) => {
@@ -220,10 +223,7 @@ export const ConnectPage = observer(function ConnectPage() {
           {tunNeedsElevation && (
             <div className="flex items-start gap-2 rounded-sm border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-2xs text-warn">
               <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
-              <span className="break-words">
-                Полный туннель требует прав администратора. Запусти приложение от
-                имени администратора.
-              </span>
+              <span className="break-words">{t('connect.tunNeedsAdmin')}</span>
             </div>
           )}
         </div>
@@ -249,19 +249,17 @@ export const ConnectPage = observer(function ConnectPage() {
 
         {/* location selector */}
         <label className="flex flex-col gap-1.5">
-          <Eyebrow>Location</Eyebrow>
+          <Eyebrow>{t('connect.location')}</Eyebrow>
           <Select
             value={conn.selectedServerId}
             onValueChange={(v) => conn.setSelectedServer(v)}
             disabled={locked}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Loading…" />
+              <SelectValue placeholder={t('connect.locationLoading')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={AUTO_SERVER_ID}>
-                Auto (best) — lowest latency
-              </SelectItem>
+              <SelectItem value={AUTO_SERVER_ID}>{t('connect.auto')}</SelectItem>
               {conn.locations.map((loc) => {
                 // Show the user's OWN measured ping, falling back to the
                 // backend's control-plane latency when not yet measured.
@@ -279,7 +277,7 @@ export const ConnectPage = observer(function ConnectPage() {
 
         {/* custom (user-supplied) servers */}
         <Card className="flex flex-col gap-2 p-2.5">
-          <Eyebrow>Свои серверы</Eyebrow>
+          <Eyebrow>{t('custom.title')}</Eyebrow>
 
           <div className="flex items-center gap-1.5">
             <Input
@@ -291,7 +289,7 @@ export const ConnectPage = observer(function ConnectPage() {
                   void addCustom();
                 }
               }}
-              placeholder="vless://… или https://… (подписка)"
+              placeholder={t('custom.placeholder')}
               disabled={locked || adding}
               className="h-8 text-sm"
             />
@@ -300,7 +298,7 @@ export const ConnectPage = observer(function ConnectPage() {
               onClick={() => void addCustom()}
               disabled={locked || adding || customInput.trim() === ''}
             >
-              {adding ? 'Добавление…' : 'Добавить'}
+              {adding ? t('custom.adding') : t('common.add')}
             </Button>
           </div>
 
@@ -332,7 +330,7 @@ export const ConnectPage = observer(function ConnectPage() {
                     size="icon"
                     onClick={() => void conn.removeCustomServer(s.id)}
                     disabled={locked}
-                    aria-label={`Удалить ${s.name}`}
+                    aria-label={t('custom.remove', { name: s.name })}
                   >
                     <X className="h-4 w-4" strokeWidth={1.5} />
                   </Button>
@@ -341,15 +339,13 @@ export const ConnectPage = observer(function ConnectPage() {
             </ul>
           )}
 
-          <p className="text-2xs text-mute">
-            Трафик по своим серверам не учитывается и не ограничен подпиской.
-          </p>
+          <p className="text-2xs text-mute">{t('custom.note')}</p>
         </Card>
 
         {/* instrument cells */}
         <div className="grid grid-cols-2 gap-2">
           <MetricCell
-            label="Ping"
+            label={t('connect.ping')}
             value={pingMs > 0 ? String(pingMs) : '—'}
             unit={pingMs > 0 ? 'ms' : ''}
             chart={
@@ -361,7 +357,7 @@ export const ConnectPage = observer(function ConnectPage() {
             }
           />
           <MetricCell
-            label="Traffic"
+            label={t('connect.traffic')}
             value={trafficFmt.value}
             unit={trafficFmt.unit}
             chart={
@@ -379,7 +375,7 @@ export const ConnectPage = observer(function ConnectPage() {
         <Card className="flex flex-col gap-2 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-col gap-0.5">
-              <Eyebrow>SOCKS proxy</Eyebrow>
+              <Eyebrow>{t('connect.socksProxy')}</Eyebrow>
               <code
                 className={`selectable font-mono text-sm tabnum ${
                   conn.connected ? 'text-ok' : 'text-ash'
@@ -394,7 +390,7 @@ export const ConnectPage = observer(function ConnectPage() {
                   variant="outline"
                   size="icon"
                   onClick={copyCurl}
-                  aria-label="Copy curl test command"
+                  aria-label={t('connect.copyCurlAria')}
                 >
                   {copied ? (
                     <Check className="h-4 w-4 text-ok" strokeWidth={1.5} />
@@ -404,7 +400,7 @@ export const ConnectPage = observer(function ConnectPage() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {copied ? 'Copied' : 'Copy curl test'}
+                {copied ? t('common.copied') : t('connect.copyCurl')}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -425,12 +421,12 @@ export const ConnectPage = observer(function ConnectPage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/settings')}
-                aria-label="Settings"
+                aria-label={t('nav.settings')}
               >
                 <SettingsIcon className="h-4 w-4" strokeWidth={1.5} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Settings</TooltipContent>
+            <TooltipContent>{t('nav.settings')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -438,12 +434,12 @@ export const ConnectPage = observer(function ConnectPage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => void auth.logout()}
-                aria-label="Log out"
+                aria-label={t('nav.logout')}
               >
                 <LogOut className="h-4 w-4" strokeWidth={1.5} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Log out</TooltipContent>
+            <TooltipContent>{t('nav.logout')}</TooltipContent>
           </Tooltip>
         </div>
       </div>

@@ -2,13 +2,15 @@ import { observer } from 'mobx-react-lite';
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, LogIn, UserPlus } from 'lucide-react';
-import { useAuth } from '@/stores/context';
+import { useAuth, useT } from '@/stores/context';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Eyebrow } from '@/components/ui/card';
+import { LangSwitch } from '@/components/LangSwitch';
 
 export const LoginPage = observer(function LoginPage() {
   const auth = useAuth();
+  const t = useT();
   const navigate = useNavigate();
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
@@ -28,16 +30,19 @@ export const LoginPage = observer(function LoginPage() {
 
   return (
     <div className="flex h-full flex-col justify-center">
-      <div className="mb-6">
-        <Eyebrow>Secure access</Eyebrow>
-        <h1 className="mt-1 font-display text-xl font-semibold tracking-tight text-frost">
-          Sign in
-        </h1>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <Eyebrow>{t('login.eyebrow')}</Eyebrow>
+          <h1 className="mt-1 font-display text-xl font-semibold tracking-tight text-frost">
+            {t('login.signIn')}
+          </h1>
+        </div>
+        <LangSwitch />
       </div>
 
       <form className="flex flex-col gap-4" onSubmit={onSubmit}>
         <label className="flex flex-col gap-1.5">
-          <Eyebrow>Email или логин</Eyebrow>
+          <Eyebrow>{t('login.identifier')}</Eyebrow>
           <Input
             type="text"
             autoComplete="username"
@@ -49,7 +54,7 @@ export const LoginPage = observer(function LoginPage() {
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <Eyebrow>Password</Eyebrow>
+          <Eyebrow>{t('login.password')}</Eyebrow>
           <Input
             type="password"
             autoComplete="current-password"
@@ -61,7 +66,7 @@ export const LoginPage = observer(function LoginPage() {
 
         {auth.mfaRequired && (
           <label className="flex flex-col gap-1.5">
-            <Eyebrow>Код подтверждения (2FA)</Eyebrow>
+            <Eyebrow>{t('login.otp')}</Eyebrow>
             <Input
               type="text"
               inputMode="numeric"
@@ -75,9 +80,7 @@ export const LoginPage = observer(function LoginPage() {
               required
               autoFocus
             />
-            <span className="text-2xs text-mute">
-              Введите 6-значный код из приложения-аутентификатора.
-            </span>
+            <span className="text-2xs text-mute">{t('login.otpHint')}</span>
           </label>
         )}
 
@@ -94,23 +97,23 @@ export const LoginPage = observer(function LoginPage() {
         <Button type="submit" disabled={auth.loggingIn} className="mt-1">
           <LogIn className="h-4 w-4" strokeWidth={1.5} />
           {auth.loggingIn
-            ? 'Signing in…'
+            ? t('login.signingIn')
             : auth.mfaRequired
-              ? 'Подтвердить'
-              : 'Sign in'}
+              ? t('login.confirm')
+              : t('login.signIn')}
         </Button>
       </form>
 
       {auth.dashboardUrl && (
         <div className="mt-6 flex flex-col items-center gap-2 border-t border-hairline pt-5">
-          <span className="text-2xs text-mute">Нет аккаунта?</span>
+          <span className="text-2xs text-mute">{t('login.noAccount')}</span>
           <button
             type="button"
             onClick={() => void auth.openRegister()}
             className="flex items-center gap-1.5 text-sm text-ion hover:text-frost"
           >
             <UserPlus className="h-4 w-4" strokeWidth={1.5} />
-            Создать аккаунт
+            {t('login.createAccount')}
           </button>
         </div>
       )}

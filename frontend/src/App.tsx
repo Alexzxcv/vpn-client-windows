@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { Loader2 } from 'lucide-react';
 import { AppRouter } from '@/router/AppRouter';
-import { useAuth } from '@/stores/context';
+import { useAuth, useT } from '@/stores/context';
 import { Titlebar } from '@/components/Titlebar';
 
 /**
@@ -22,12 +22,13 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 export const App = observer(function App() {
   const auth = useAuth();
+  const t = useT();
 
   if (auth.bootstrapError) {
     return (
       <Shell>
         <div className="mx-auto max-w-xs rounded-sm border border-alert/40 bg-alert/10 px-3 py-2.5 text-center text-sm text-alert">
-          Core connection failed: {auth.bootstrapError}
+          {t('login.coreFailed', { error: auth.bootstrapError })}
         </div>
       </Shell>
     );
@@ -39,7 +40,7 @@ export const App = observer(function App() {
         <div className="flex flex-col items-center justify-center gap-2 text-mute">
           <Loader2 className="h-5 w-5 animate-spin text-ion" strokeWidth={1.5} />
           <span className="font-mono text-2xs uppercase tracking-eyebrow">
-            Initializing
+            {t('common.initializing')}
           </span>
         </div>
       </Shell>

@@ -3,6 +3,7 @@ import { AuthStore } from './AuthStore';
 import { ConnectionStore } from './ConnectionStore';
 import { SettingsStore } from './SettingsStore';
 import { UpdateStore } from './UpdateStore';
+import { i18n } from './I18nStore';
 
 export class RootStore {
   readonly api: ControlApi;
@@ -10,6 +11,7 @@ export class RootStore {
   readonly connection: ConnectionStore;
   readonly settings: SettingsStore;
   readonly update: UpdateStore;
+  readonly i18n = i18n;
 
   constructor() {
     this.api = api;

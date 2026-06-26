@@ -1,6 +1,8 @@
 import { cva, type VariantProps } from 'class-variance-authority';
+import { observer } from 'mobx-react-lite';
 import { cn } from '@/lib/utils';
 import type { ConnState } from '@/api/types';
+import { i18n } from '@/stores/I18nStore';
 
 const dotVariants = cva('inline-block h-2 w-2 rounded-full shrink-0', {
   variants: {
@@ -50,15 +52,15 @@ const STATE_TONE: Record<ConnState, StatusTone> = {
   error: 'alert',
 };
 
-const STATE_LABEL: Record<ConnState, string> = {
-  disconnected: 'OFFLINE',
-  connecting: 'LINKING',
-  connected: 'SECURED',
-  error: 'ERROR',
+const STATE_LABEL_KEY: Record<ConnState, string> = {
+  disconnected: 'status.offline',
+  connecting: 'status.linking',
+  connected: 'status.secured',
+  error: 'status.error',
 };
 
 /** Eyebrow-style status badge: dot + uppercase mono label. */
-export function StatusBadge({
+export const StatusBadge = observer(function StatusBadge({
   state,
   className,
 }: {
@@ -78,7 +80,7 @@ export function StatusBadge({
       )}
     >
       <StatusDot tone={tone} pulse={state === 'connecting'} />
-      {STATE_LABEL[state]}
+      {i18n.t(STATE_LABEL_KEY[state])}
     </span>
   );
-}
+});

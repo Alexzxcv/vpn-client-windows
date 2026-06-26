@@ -1,7 +1,9 @@
+import { observer } from 'mobx-react-lite';
 import { Minus, Square, X } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { Logo } from '@/components/Logo';
 import { api } from '@/api/control';
+import { i18n } from '@/stores/I18nStore';
 
 /**
  * Native bridge functions injected by the Go host (go-webview2 Bind). They are
@@ -30,7 +32,7 @@ function startDrag(e: MouseEvent) {
  * Custom frameless title bar: SAPN mark + name on the left, window controls on
  * the right. The whole bar (minus the buttons) is the drag region.
  */
-export function Titlebar() {
+export const Titlebar = observer(function Titlebar() {
   const minimize = () => {
     void api.windowMinimize().catch(() => window.windowMinimize?.());
   };
@@ -57,7 +59,7 @@ export function Titlebar() {
         <button
           type="button"
           onClick={minimize}
-          aria-label="Minimize"
+          aria-label={i18n.t('nav.minimize')}
           className="flex h-9 w-10 items-center justify-center text-ash transition-colors hover:bg-graphite hover:text-frost"
         >
           <Minus className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -65,7 +67,7 @@ export function Titlebar() {
         <button
           type="button"
           onClick={maximize}
-          aria-label="Maximize"
+          aria-label={i18n.t('nav.maximize')}
           className="flex h-9 w-10 items-center justify-center text-ash transition-colors hover:bg-graphite hover:text-frost"
         >
           <Square className="h-3 w-3" strokeWidth={1.5} />
@@ -73,7 +75,7 @@ export function Titlebar() {
         <button
           type="button"
           onClick={close}
-          aria-label="Close"
+          aria-label={i18n.t('nav.close')}
           className="flex h-9 w-10 items-center justify-center text-ash transition-colors hover:bg-alert hover:text-void"
         >
           <X className="h-4 w-4" strokeWidth={1.5} />
@@ -81,6 +83,6 @@ export function Titlebar() {
       </div>
     </header>
   );
-}
+});
 
 export default Titlebar;

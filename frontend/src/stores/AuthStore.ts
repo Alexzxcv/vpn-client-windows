@@ -1,6 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { ApiError, type ControlApi } from '@/api/control';
 import type { Me } from '@/api/types';
+import { i18n } from './I18nStore';
 
 export class AuthStore {
   private readonly api: ControlApi;
@@ -52,7 +53,7 @@ export class AuthStore {
     } catch (e) {
       runInAction(() => {
         this.bootstrapError =
-          e instanceof Error ? e.message : 'Bootstrap failed';
+          e instanceof Error ? e.message : i18n.t('login.bootstrapFailed');
         this.bootstrapped = false;
       });
     }
@@ -88,10 +89,10 @@ export class AuthStore {
         if (e instanceof ApiError && e.code === 'mfa_required') {
           this.mfaRequired = true;
           // Если код уже вводили и он неверный — сообщаем; иначе молча просим код.
-          this.loginError = otp ? 'Неверный код подтверждения' : null;
+          this.loginError = otp ? i18n.t('login.badOtp') : null;
         } else {
           this.loginError =
-            e instanceof Error ? e.message : 'Login failed';
+            e instanceof Error ? e.message : i18n.t('login.failed');
         }
         this.loggingIn = false;
       });

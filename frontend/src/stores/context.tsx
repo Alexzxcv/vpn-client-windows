@@ -38,3 +38,17 @@ export function useSettings() {
 export function useUpdate() {
   return useStores().update;
 }
+
+export function useI18n() {
+  return useStores().i18n;
+}
+
+/**
+ * Reactive translate function. Must be called inside an `observer` component:
+ * `t()` reads `i18n.lang` (observable), so the component re-renders on language
+ * change.
+ */
+export function useT() {
+  const s = useI18n();
+  return (k: string, vars?: Record<string, string | number>) => s.t(k, vars);
+}
