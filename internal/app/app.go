@@ -323,6 +323,36 @@ func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
 			Port:     cs.Port,
 		}})
 	}
+
+	// Пинг кастомного сервера ТЕКУЩЕЙ сессии: для кастомных нод нет backend-
+	// латентности, но узел, к которому мы подключены, маршрутизируется напрямую
+	// (route-правило «до VPN-сервера — direct»), поэтому прямой TCP-замер даёт
+	// реальный RTT. Меряем только подключённую кастомную ноду (остальные при
+	// активном туннеле шли бы через него и дали бы недостоверное значение).
+	a.mu.Lock()
+	connected := a.state == StateConnected
+	connectedID := ""
+	if a.location != nil {
+		connectedID = a.location.ID
+	}
+	a.mu.Unlock()
+	if connected && strings.HasPrefix(connectedID, CustomPrefix) {
+		for i := range views {
+			if views[i].ID != connectedID || views[i].Host == "" || views[i].Port == 0 {
+				continue
+			}
+			// Замер — в фоне (TTL-кэш внутри пингера не даёт мерить чаще раза в
+			// 30с), чтобы не блокировать ответ. Текущее кэшированное значение
+			// отдаём сразу; оно появится в течение пары опросов.
+			t := pingTarget{id: views[i].ID, host: views[i].Host, port: views[i].Port}
+			go func() {
+				mctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				a.ping.Refresh(mctx, []pingTarget{t})
+			}()
+			views[i].PingMs = a.ping.PingMs(views[i].ID)
+		}
+	}
 	return views, nil
 }
 
