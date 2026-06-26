@@ -39,6 +39,13 @@ export class ConnectionStore {
   locations: Location[] = [];
   /** Defaults to "Auto (best)": the backend picks the lowest-latency node. */
   selectedServerId: string = AUTO_SERVER_ID;
+  /**
+   * Whether the user has explicitly picked a server in this UI session. Until
+   * they do, we adopt the actually-connected node from the core status — so
+   * reopening the window from the tray (which remounts this store) restores the
+   * real selection instead of snapping back to "Auto (best)".
+   */
+  private userPickedServer = false;
   proxy: Proxy | null = null;
 
   busy = false;
@@ -151,8 +158,14 @@ export class ConnectionStore {
     this.mode = status.mode;
     this.lastError = status.last_error ?? null;
     this.since = status.since ?? null;
-    // Do NOT override the user's selection (e.g. "Auto (best)") with the
-    // backend-resolved node id from the live status.
+    // Restore the selection from the connected node when the user has not picked
+    // one yet this session (e.g. the window was reopened from the tray and this
+    // store was freshly remounted while the core stayed connected). The core
+    // reports status.location only for an explicit server choice (it is absent
+    // for "Auto (best)"), so adopting it never overrides an Auto selection.
+    if (!this.userPickedServer && status.location?.id) {
+      this.selectedServerId = status.location.id;
+    }
   }
 
   async refreshStatus(): Promise<void> {
@@ -271,6 +284,8 @@ export class ConnectionStore {
   }
 
   setSelectedServer(id: string): void {
+    // An explicit user choice — stop adopting the connected node from status.
+    this.userPickedServer = true;
     if (id !== this.selectedServerId) {
       // The ping window tracks the selected node; reset it on a switch and seed
       // it with the new node's current measurement.

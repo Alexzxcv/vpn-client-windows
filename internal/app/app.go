@@ -524,9 +524,11 @@ func (a *App) setState(s State, loc *LocationInfo, lastErr string) {
 	case StateConnected:
 		now := time.Now()
 		a.since = &now
-		if loc != nil {
-			a.location = loc
-		}
+		// Authoritative: loc is the user's chosen node, or nil for "Auto (best)".
+		// Assign unconditionally (incl. nil) so Status never reports a stale node
+		// after switching from a specific server to Auto — the UI restores the
+		// selection from this on reopen.
+		a.location = loc
 	case StateDisconnected, StateError:
 		a.since = nil
 		a.location = nil
