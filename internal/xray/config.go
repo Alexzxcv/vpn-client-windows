@@ -148,10 +148,15 @@ func xrayRoutingRules(opts routing.Options) []any {
 	}
 
 	if opts.RussiaDirect {
+		// ВАЖНО: НЕ используем geosite:ru/geosite:category-ru — таких тегов нет в
+		// бандловом geosite.dat (Loyalsoldier), и xray падает на старте с ними
+		// (SOCKS-порт не открывается → connect через прокси не работает). Вместо
+		// этого матчим все *.ru домены через domain:ru (без внешних данных) и
+		// российские IP через geoip:ru (тег ru есть в geoip.dat).
 		rules = append(rules,
 			map[string]any{
 				"type":        "field",
-				"domain":      []string{"geosite:category-ru", "geosite:ru"},
+				"domain":      []string{"domain:ru"},
 				"outboundTag": "direct",
 			},
 			map[string]any{

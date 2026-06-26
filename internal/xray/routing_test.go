@@ -45,10 +45,15 @@ func TestGenerateConfigWithRouting(t *testing.T) {
 	for _, want := range []string{
 		"routing", "outboundTag", "direct",
 		"domain:ru", "example.org", "10.0.0.0/8",
-		"geoip:ru", "geosite:ru",
+		"geoip:ru",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("routing config missing %q\n%s", want, s)
 		}
+	}
+	// geosite tags must NOT appear: they are absent from the bundled geosite.dat
+	// and make xray fail to start (regression — proxy broke with RussiaDirect on).
+	if strings.Contains(s, "geosite:") {
+		t.Fatalf("routing config must not reference geosite (breaks xray startup):\n%s", s)
 	}
 }
