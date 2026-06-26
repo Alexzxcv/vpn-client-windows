@@ -46,6 +46,8 @@ export class ConnectionStore {
    * real selection instead of snapping back to "Auto (best)".
    */
   private userPickedServer = false;
+  /** As userPickedServer, but for the connection mode (proxy/tun) toggle. */
+  private userPickedMode = false;
   proxy: Proxy | null = null;
 
   busy = false;
@@ -165,6 +167,13 @@ export class ConnectionStore {
     // for "Auto (best)"), so adopting it never overrides an Auto selection.
     if (!this.userPickedServer && status.location?.id) {
       this.selectedServerId = status.location.id;
+    }
+    // Likewise restore the mode toggle from the actually-active mode while
+    // connected, until the user picks one this session — otherwise reopening
+    // from the tray shows "Proxy" (the default) while the status header reports
+    // the real "Full tunnel".
+    if (!this.userPickedMode && status.connected) {
+      this.selectedMode = status.mode;
     }
   }
 
@@ -296,6 +305,8 @@ export class ConnectionStore {
   }
 
   setSelectedMode(mode: ConnMode): void {
+    // An explicit user choice — stop adopting the active mode from status.
+    this.userPickedMode = true;
     this.selectedMode = mode;
   }
 
