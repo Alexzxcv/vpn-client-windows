@@ -324,34 +324,31 @@ func (a *App) Locations(ctx context.Context) ([]LocationView, error) {
 		}})
 	}
 
-	// Пинг кастомного сервера ТЕКУЩЕЙ сессии: для кастомных нод нет backend-
-	// латентности, но узел, к которому мы подключены, маршрутизируется напрямую
-	// (route-правило «до VPN-сервера — direct»), поэтому прямой TCP-замер даёт
-	// реальный RTT. Меряем только подключённую кастомную ноду (остальные при
-	// активном туннеле шли бы через него и дали бы недостоверное значение).
+	// Пинг кастомных нод. У них нет backend-латентности, поэтому меряем сами —
+	// но ТОЛЬКО когда туннель НЕ поднят. При активном туннеле TCP-проба
+	// завершается локально в userspace-стеке (gvisor у TUN / прокси-сессия) и даёт
+	// ложный ~1ms, а не реальный RTT до сервера (та же причина, по которой
+	// backend-ноды не меряются клиентом). Поэтому замер — на чистом пути
+	// (disconnected/error), а показываем закэшированное реальное значение,
+	// в том числе пока подключены к этой ноде.
 	a.mu.Lock()
-	connected := a.state == StateConnected
-	connectedID := ""
-	if a.location != nil {
-		connectedID = a.location.ID
-	}
+	clean := a.state == StateDisconnected || a.state == StateError
 	a.mu.Unlock()
-	if connected && strings.HasPrefix(connectedID, CustomPrefix) {
-		for i := range views {
-			if views[i].ID != connectedID || views[i].Host == "" || views[i].Port == 0 {
-				continue
-			}
-			// Замер — в фоне (TTL-кэш внутри пингера не даёт мерить чаще раза в
-			// 30с), чтобы не блокировать ответ. Текущее кэшированное значение
-			// отдаём сразу; оно появится в течение пары опросов.
+	for i := range views {
+		if !strings.HasPrefix(views[i].ID, CustomPrefix) {
+			continue
+		}
+		if clean && views[i].Host != "" && views[i].Port > 0 {
+			// Фоном (TTL-кэш не даёт мерить чаще раза в 30с), чтобы не блокировать
+			// ответ. Текущее кэшированное значение отдаём сразу.
 			t := pingTarget{id: views[i].ID, host: views[i].Host, port: views[i].Port}
-			go func() {
+			go func(t pingTarget) {
 				mctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 				defer cancel()
 				a.ping.Refresh(mctx, []pingTarget{t})
-			}()
-			views[i].PingMs = a.ping.PingMs(views[i].ID)
+			}(t)
 		}
+		views[i].PingMs = a.ping.PingMs(views[i].ID)
 	}
 	return views, nil
 }
