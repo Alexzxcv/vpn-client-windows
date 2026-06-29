@@ -8,7 +8,6 @@ import {
   Check,
   Copy,
   Globe,
-  LogOut,
   Settings as SettingsIcon,
   ShieldAlert,
   Terminal,
@@ -170,9 +169,9 @@ export const ConnectPage = observer(function ConnectPage() {
           </div>
         )}
 
-        {/* status row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        {/* header: status (left) · account + settings (right) */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <StatusBadge state={conn.state} />
             {conn.connected && (
               <span
@@ -186,11 +185,27 @@ export const ConnectPage = observer(function ConnectPage() {
               </span>
             )}
           </div>
-          {auth.me && (
-            <span className="max-w-[55%] truncate font-mono text-2xs text-mute">
-              {auth.me.email}
-            </span>
-          )}
+          <div className="flex min-w-0 items-center gap-1.5">
+            {auth.me && (
+              <span className="max-w-[150px] truncate font-mono text-2xs text-mute">
+                {auth.me.email}
+              </span>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => navigate('/settings')}
+                  aria-label={t('nav.settings')}
+                >
+                  <SettingsIcon className="h-4 w-4" strokeWidth={1.5} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('nav.settings')}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
 
         {/* signature RouteMap */}
@@ -443,35 +458,6 @@ export const ConnectPage = observer(function ConnectPage() {
         </Card>
         )}
 
-        {/* footer actions */}
-        <div className="mt-auto flex justify-end gap-1 pt-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate('/settings')}
-                aria-label={t('nav.settings')}
-              >
-                <SettingsIcon className="h-4 w-4" strokeWidth={1.5} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('nav.settings')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => void auth.logout()}
-                aria-label={t('nav.logout')}
-              >
-                <LogOut className="h-4 w-4" strokeWidth={1.5} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('nav.logout')}</TooltipContent>
-          </Tooltip>
-        </div>
       </div>
     </TooltipProvider>
   );

@@ -15,6 +15,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     'common.back': 'Back',
     'common.add': 'Add',
     'common.dismiss': 'Dismiss',
+    'common.cancel': 'Cancel',
     'common.copy': 'Copy',
     'common.copied': 'Copied',
     'common.initializing': 'Initializing',
@@ -107,6 +108,11 @@ export const translations: Record<Lang, Record<string, string>> = {
     'settings.directListHint':
       'One entry per line: domains (.ru, example.com) or IP/CIDR (10.0.0.0/8). These bypass the tunnel.',
     'settings.language': 'Language',
+    'settings.account': 'Account',
+    'logout.title': 'Log out?',
+    'logout.desc':
+      'You will be disconnected and signed out on this device.',
+    'logout.loggingOut': 'Logging out…',
   },
   ru: {
     // common
@@ -116,6 +122,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     'common.back': 'Назад',
     'common.add': 'Добавить',
     'common.dismiss': 'Закрыть',
+    'common.cancel': 'Отмена',
     'common.copy': 'Копировать',
     'common.copied': 'Скопировано',
     'common.initializing': 'Инициализация',
@@ -208,5 +215,10 @@ export const translations: Record<Lang, Record<string, string>> = {
     'settings.directListHint':
       'По одной записи в строке: домены (.ru, example.com) или IP/CIDR (10.0.0.0/8). Они идут мимо туннеля.',
     'settings.language': 'Язык',
+    'settings.account': 'Аккаунт',
+    'logout.title': 'Выйти из аккаунта?',
+    'logout.desc':
+      'Соединение будет разорвано, и вы выйдете из аккаунта на этом устройстве.',
+    'logout.loggingOut': 'Выход…',
   },
 };
