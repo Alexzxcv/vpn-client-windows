@@ -412,10 +412,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Surface the actual reason (e.g. "TUN requires administrator") so the UI
 		// can show it. No secrets are present in connect errors.
-		writeJSON(w, http.StatusBadGateway, map[string]any{
+		resp := map[string]any{
 			"state": string(state),
 			"error": err.Error(),
-		})
+		}
+		// Device limit on backend nodes → stable code so the UI shows a friendly,
+		// localized message (custom servers are never affected: no registration).
+		if errors.Is(err, backend.ErrDeviceLimit) {
+			resp["error"] = "device limit reached"
+			resp["code"] = "device_limit"
+		}
+		writeJSON(w, http.StatusBadGateway, resp)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"state": string(state)})

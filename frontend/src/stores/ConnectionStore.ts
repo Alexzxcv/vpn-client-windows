@@ -326,8 +326,14 @@ export class ConnectionStore {
       await this.refreshStatus();
     } catch (e) {
       runInAction(() => {
-        this.actionError =
-          e instanceof Error ? e.message : i18n.t('connect.connectFailed');
+        // Friendly message for the per-tier device limit (backend nodes only;
+        // custom servers are never affected). Other errors pass through.
+        if (e instanceof ApiError && e.code === 'device_limit') {
+          this.actionError = i18n.t('connect.deviceLimit');
+        } else {
+          this.actionError =
+            e instanceof Error ? e.message : i18n.t('connect.connectFailed');
+        }
       });
     } finally {
       runInAction(() => {

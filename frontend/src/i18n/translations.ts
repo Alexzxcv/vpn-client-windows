@@ -56,6 +56,8 @@ export const translations: Record<Lang, Record<string, string>> = {
     'connect.autoName': 'Auto (best)',
     'connect.autoSub': 'lowest latency',
     'connect.connectFailed': 'Connect failed',
+    'connect.deviceLimit':
+      'Device limit for your plan reached. Remove an unused device in your account or upgrade your plan — or connect via your own server (no device limit).',
     'connect.disconnectFailed': 'Disconnect failed',
     'connect.socksProxy': 'SOCKS proxy',
     'connect.copyCurl': 'Copy curl test',
@@ -163,6 +165,8 @@ export const translations: Record<Lang, Record<string, string>> = {
     'connect.autoName': 'Авто (лучший)',
     'connect.autoSub': 'минимальная задержка',
     'connect.connectFailed': 'Не удалось подключиться',
+    'connect.deviceLimit':
+      'Достигнут лимит устройств вашего тарифа. Удалите неиспользуемое устройство в личном кабинете или оформите подписку — либо подключитесь через свой сервер (на них лимита нет).',
     'connect.disconnectFailed': 'Не удалось отключиться',
     'connect.socksProxy': 'SOCKS-прокси',
     'connect.copyCurl': 'Скопировать curl-тест',

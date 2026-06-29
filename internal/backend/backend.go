@@ -420,6 +420,12 @@ type registerDeviceResp struct {
 // RegisterDevice registers this device's public key (idempotent by public_key)
 // and returns the backend-assigned device_id. mac is optional telemetry and may
 // be empty. Required before /vpn/config.
+// ErrDeviceLimit is returned by RegisterDevice when the account has reached its
+// per-tier device limit (backend 403, code "device_limit"). Connecting to a
+// backend node needs a registered device; custom servers do not, so they are
+// never subject to this. The UI maps it to a friendly message.
+var ErrDeviceLimit = errors.New("device limit reached")
+
 func (c *Client) RegisterDevice(ctx context.Context, publicKeyB64, name, platform, mac string) (string, error) {
 	body := map[string]string{
 		"public_key": publicKeyB64,
@@ -431,6 +437,11 @@ func (c *Client) RegisterDevice(ctx context.Context, publicKeyB64, name, platfor
 	}
 	var out registerDeviceResp
 	if err := c.doJSON(ctx, http.MethodPost, "/devices", body, &out, true); err != nil {
+		// The backend returns 403 with code "device_limit"; doOnce embeds the
+		// response body in the error, so detect the stable code here.
+		if strings.Contains(err.Error(), "device_limit") {
+			return "", ErrDeviceLimit
+		}
 		return "", fmt.Errorf("register device: %w", err)
 	}
 	if out.DeviceID == "" {
