@@ -41,6 +41,24 @@ type Settings struct {
 	// Autostart launches the client at Windows login (registry Run key). The
 	// registry is the source of truth; this mirrors it for the UI.
 	Autostart bool `json:"autostart,omitempty"`
+
+	// MultiProxyEnabled reveals the multi-proxy feature (several local SOCKS5
+	// proxies, each on its own port tunnelling to its own server). Off by default.
+	MultiProxyEnabled bool `json:"multi_proxy_enabled,omitempty"`
+
+	// ProxyMappings are the configured multi-proxy entries (persisted config only;
+	// running state lives in the app). Empty when the feature is unused.
+	ProxyMappings []ProxyMapping `json:"proxy_mappings,omitempty"`
+}
+
+// ProxyMapping is one configured multi-proxy entry: a local SOCKS5 port bound to
+// a specific server. ServerID is "auto", a backend location id, or "custom:<id>".
+// Exactly one mapping may be Main (its port receives the Windows system proxy).
+type ProxyMapping struct {
+	ID       string `json:"id"`
+	Port     int    `json:"port"`
+	ServerID string `json:"server_id"`
+	Main     bool   `json:"main,omitempty"`
 }
 
 // Default returns a Settings populated with defaults.
@@ -64,6 +82,26 @@ func (s *Settings) normalise() {
 	if s.KillSwitch == nil {
 		on := true
 		s.KillSwitch = &on
+	}
+	// Multi-proxy mappings: drop entries with no id or an invalid port; keep at
+	// most one Main.
+	if len(s.ProxyMappings) > 0 {
+		seenMain := false
+		out := make([]ProxyMapping, 0, len(s.ProxyMappings))
+		for _, m := range s.ProxyMappings {
+			if m.ID == "" || m.Port <= 0 || m.Port > 65535 {
+				continue
+			}
+			if m.Main {
+				if seenMain {
+					m.Main = false
+				} else {
+					seenMain = true
+				}
+			}
+			out = append(out, m)
+		}
+		s.ProxyMappings = out
 	}
 }
 
@@ -106,11 +144,16 @@ func (st *Store) Get() Settings {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 	s := st.cur
-	// copy slice so callers can't mutate the stored one
+	// copy slices so callers can't mutate the stored ones
 	if s.DirectList != nil {
 		cp := make([]string, len(s.DirectList))
 		copy(cp, s.DirectList)
 		s.DirectList = cp
+	}
+	if s.ProxyMappings != nil {
+		cp := make([]ProxyMapping, len(s.ProxyMappings))
+		copy(cp, s.ProxyMappings)
+		s.ProxyMappings = cp
 	}
 	return s
 }

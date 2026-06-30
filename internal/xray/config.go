@@ -36,33 +36,39 @@ func GenerateConfigWith(cfg backend.VLESSConfig, socksPort, httpPort int, opts r
 		fingerprint = "chrome"
 	}
 
+	// SOCKS inbound is always present; the HTTP inbound is added only when an
+	// http port is given. Multi-proxy instances are SOCKS-only and pass httpPort=0.
+	inbounds := []any{
+		map[string]any{
+			"tag":      "socks-in",
+			"listen":   "127.0.0.1",
+			"port":     socksPort,
+			"protocol": "socks",
+			"settings": map[string]any{
+				"udp":  true,
+				"auth": "noauth",
+			},
+			"sniffing": map[string]any{
+				"enabled":      true,
+				"destOverride": []string{"http", "tls"},
+			},
+		},
+	}
+	if httpPort > 0 {
+		inbounds = append(inbounds, map[string]any{
+			"tag":      "http-in",
+			"listen":   "127.0.0.1",
+			"port":     httpPort,
+			"protocol": "http",
+			"settings": map[string]any{},
+		})
+	}
+
 	conf := map[string]any{
 		"log": map[string]any{
 			"loglevel": "warning",
 		},
-		"inbounds": []any{
-			map[string]any{
-				"tag":      "socks-in",
-				"listen":   "127.0.0.1",
-				"port":     socksPort,
-				"protocol": "socks",
-				"settings": map[string]any{
-					"udp":  true,
-					"auth": "noauth",
-				},
-				"sniffing": map[string]any{
-					"enabled":      true,
-					"destOverride": []string{"http", "tls"},
-				},
-			},
-			map[string]any{
-				"tag":      "http-in",
-				"listen":   "127.0.0.1",
-				"port":     httpPort,
-				"protocol": "http",
-				"settings": map[string]any{},
-			},
-		},
+		"inbounds": inbounds,
 		"outbounds": []any{
 			map[string]any{
 				"tag":      "proxy",

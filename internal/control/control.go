@@ -161,6 +161,13 @@ func (s *Server) router() http.Handler {
 			authed.Post("/custom-servers", s.handleAddCustomServer)
 			authed.Get("/custom-servers/{id}/link", s.handleCustomServerLink)
 			authed.Delete("/custom-servers/{id}", s.handleRemoveCustomServer)
+			// Мульти-прокси: несколько локальных SOCKS5-прокси на разных портах.
+			authed.Get("/multi-proxy", s.handleListMultiProxy)
+			authed.Post("/multi-proxy", s.handleAddMultiProxy)
+			authed.Put("/multi-proxy/{id}", s.handleUpdateMultiProxy)
+			authed.Delete("/multi-proxy/{id}", s.handleRemoveMultiProxy)
+			authed.Post("/multi-proxy/{id}/start", s.handleStartMultiProxy)
+			authed.Post("/multi-proxy/{id}/stop", s.handleStopMultiProxy)
 			authed.Get("/usage", s.handleUsage)
 			authed.Post("/connect", s.handleConnect)
 			authed.Post("/disconnect", s.handleDisconnect)
@@ -377,6 +384,77 @@ func (s *Server) handleRemoveCustomServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ----- multi-proxy -----
+
+func (s *Server) handleListMultiProxy(w http.ResponseWriter, r *http.Request) {
+	list := s.app.ListMultiProxy()
+	if list == nil {
+		list = []app.MultiProxyEntry{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+type multiProxyBody struct {
+	Port     int    `json:"port"`
+	ServerID string `json:"server_id"`
+	Main     bool   `json:"main"`
+}
+
+func (s *Server) handleAddMultiProxy(w http.ResponseWriter, r *http.Request) {
+	var body multiProxyBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	e, err := s.app.AddMultiProxy(body.Port, body.ServerID, body.Main)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
+}
+
+func (s *Server) handleUpdateMultiProxy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body multiProxyBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := s.app.UpdateMultiProxy(id, body.Port, body.ServerID, body.Main); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRemoveMultiProxy(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.RemoveMultiProxy(chi.URLParam(r, "id")); err != nil {
+		writeErr(w, http.StatusInternalServerError, "remove failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleStartMultiProxy(w http.ResponseWriter, r *http.Request) {
+	state, err := s.app.StartMultiProxy(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		resp := map[string]any{"state": string(state), "error": err.Error()}
+		if errors.Is(err, backend.ErrDeviceLimit) {
+			resp["error"] = "device limit reached"
+			resp["code"] = "device_limit"
+		}
+		writeJSON(w, http.StatusBadGateway, resp)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"state": string(state)})
+}
+
+func (s *Server) handleStopMultiProxy(w http.ResponseWriter, r *http.Request) {
+	state, _ := s.app.StopMultiProxy(chi.URLParam(r, "id"))
+	writeJSON(w, http.StatusOK, map[string]any{"state": string(state)})
 }
 
 // handleUsage returns the current traffic totals, the optional free-daily

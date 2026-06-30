@@ -58,6 +58,22 @@ export interface CustomServer {
   port: number;
 }
 
+/**
+ * One local multi-proxy entry: a SOCKS5 listener on its own port pointed at a
+ * specific server. `server_id` is 'auto' | a backend-location id | 'custom:<id>'.
+ * `address` (e.g. "127.0.0.1:10810") is present once the proxy is running.
+ */
+export interface MultiProxyEntry {
+  id: string;
+  port: number;
+  server_id: string;
+  /** The "main" proxy receives the system proxy setting. */
+  main: boolean;
+  state: ConnState;
+  error?: string;
+  address?: string;
+}
+
 /** Free daily traffic allowance (bytes), mirrors backend.FreeDaily. */
 export interface FreeDaily {
   limit_bytes: number;
@@ -113,4 +129,7 @@ export interface Settings {
   russia_direct?: boolean;
   /** Launch the client at Windows login (starts minimized to tray). */
   autostart?: boolean;
+  /** Enable the multi-proxy feature: several local SOCKS5 proxies on
+   *  different ports, each to its own server. Proxy-mode only. */
+  multi_proxy_enabled?: boolean;
 }

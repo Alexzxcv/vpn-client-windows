@@ -37,6 +37,30 @@ func Set(httpAddr, socksAddr string) error {
 	return nil
 }
 
+// SetSocks включает системный прокси ТОЛЬКО на SOCKS (socksAddr) — для
+// «основного» мульти-прокси (SOCKS5), на который заворачивается остальной
+// трафик. HTTP/HTTPS-прокси не задаётся (SOCKS5 покрывает их на уровне
+// транспорта; SOCKS-aware приложения, вкл. браузеры, ходят через него).
+func SetSocks(socksAddr string) error {
+	k, err := registry.OpenKey(registry.CURRENT_USER, inetSettings, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("sysproxy: open key: %w", err)
+	}
+	defer k.Close()
+
+	if err := k.SetStringValue("ProxyServer", fmt.Sprintf("socks=%s", socksAddr)); err != nil {
+		return fmt.Errorf("sysproxy: set ProxyServer: %w", err)
+	}
+	if err := k.SetStringValue("ProxyOverride", "<local>"); err != nil {
+		return fmt.Errorf("sysproxy: set ProxyOverride: %w", err)
+	}
+	if err := k.SetDWordValue("ProxyEnable", 1); err != nil {
+		return fmt.Errorf("sysproxy: set ProxyEnable: %w", err)
+	}
+	refresh()
+	return nil
+}
+
 // Clear выключает системный прокси.
 func Clear() error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, inetSettings, registry.SET_VALUE)

@@ -6,6 +6,9 @@ package sysproxy
 // Set ничего не делает вне Windows.
 func Set(httpAddr, socksAddr string) error { _, _ = httpAddr, socksAddr; return nil }
 
+// SetSocks ничего не делает вне Windows.
+func SetSocks(socksAddr string) error { _ = socksAddr; return nil }
+
 // Clear ничего не делает вне Windows.
 func Clear() error { return nil }
 

@@ -31,6 +31,10 @@ export function useConnection() {
   return useStores().connection;
 }
 
+export function useMultiProxy() {
+  return useStores().multiProxy;
+}
+
 export function useSettings() {
   return useStores().settings;
 }

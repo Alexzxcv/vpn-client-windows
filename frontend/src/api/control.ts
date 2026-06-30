@@ -2,9 +2,11 @@ import type {
   Bootstrap,
   ConnectResult,
   ConnMode,
+  ConnState,
   CustomServer,
   Location,
   Me,
+  MultiProxyEntry,
   Proxy,
   Settings,
   Status,
@@ -173,6 +175,55 @@ export class ControlApi {
     return this.request<void>(`/api/custom-servers/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // --- Multi-proxy (several local SOCKS5 proxies, each to its own server) ---
+
+  listMultiProxy(): Promise<MultiProxyEntry[]> {
+    return this.request<MultiProxyEntry[]>('/api/multi-proxy');
+  }
+
+  addMultiProxy(
+    port: number,
+    server_id: string,
+    main: boolean,
+  ): Promise<MultiProxyEntry> {
+    return this.request<MultiProxyEntry>('/api/multi-proxy', {
+      method: 'POST',
+      body: { port, server_id, main },
+    });
+  }
+
+  updateMultiProxy(
+    id: string,
+    port: number,
+    server_id: string,
+    main: boolean,
+  ): Promise<void> {
+    return this.request<void>(`/api/multi-proxy/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: { port, server_id, main },
+    });
+  }
+
+  removeMultiProxy(id: string): Promise<void> {
+    return this.request<void>(`/api/multi-proxy/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  startMultiProxy(id: string): Promise<{ state: ConnState }> {
+    return this.request<{ state: ConnState }>(
+      `/api/multi-proxy/${encodeURIComponent(id)}/start`,
+      { method: 'POST' },
+    );
+  }
+
+  stopMultiProxy(id: string): Promise<{ state: ConnState }> {
+    return this.request<{ state: ConnState }>(
+      `/api/multi-proxy/${encodeURIComponent(id)}/stop`,
+      { method: 'POST' },
+    );
   }
 
   connect(serverId?: string, mode?: ConnMode): Promise<ConnectResult> {

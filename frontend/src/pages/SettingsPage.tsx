@@ -57,6 +57,7 @@ export const SettingsPage = observer(function SettingsPage() {
   const [killSwitch, setKillSwitch] = useState(true);
   const [russiaDirect, setRussiaDirect] = useState(false);
   const [autostart, setAutostart] = useState(false);
+  const [multiProxy, setMultiProxy] = useState(false);
   const [directList, setDirectList] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -80,6 +81,7 @@ export const SettingsPage = observer(function SettingsPage() {
     setKillSwitch(s.kill_switch ?? true);
     setRussiaDirect(s.russia_direct ?? false);
     setAutostart(s.autostart ?? false);
+    setMultiProxy(s.multi_proxy_enabled ?? false);
     setDirectList((s.direct_list ?? []).join('\n'));
   }, [settings.current]);
 
@@ -90,6 +92,7 @@ export const SettingsPage = observer(function SettingsPage() {
       kill_switch: killSwitch,
       russia_direct: russiaDirect,
       autostart: autostart,
+      multi_proxy_enabled: multiProxy,
       direct_list: directList
         .split('\n')
         .map((l) => l.trim())
@@ -175,6 +178,17 @@ export const SettingsPage = observer(function SettingsPage() {
           </span>
         </div>
         <Toggle checked={russiaDirect} onChange={setRussiaDirect} />
+      </Card>
+
+      {/* multi-proxy */}
+      <Card className="flex items-center justify-between gap-3 p-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm text-frost">{t('multiproxy.title')}</span>
+          <span className="text-2xs text-mute">
+            {t('multiproxy.enableHint')}
+          </span>
+        </div>
+        <Toggle checked={multiProxy} onChange={setMultiProxy} />
       </Card>
 
       {/* split-tunnel list */}

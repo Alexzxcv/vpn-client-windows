@@ -78,6 +78,32 @@ export const translations: Record<Lang, Record<string, string>> = {
     'custom.addFailed': 'Failed to add server',
     'custom.removeFailed': 'Failed to remove server',
 
+    // multi-proxy
+    'multiproxy.title': 'Multiproxy',
+    'multiproxy.enableHint':
+      'Run several local SOCKS5 proxies on different ports, each to its own server. Works in proxy mode; incompatible with Full tunnel.',
+    'multiproxy.add': 'Add proxy',
+    'multiproxy.edit': 'Edit proxy',
+    'multiproxy.remove': 'Remove proxy on port {port}',
+    'multiproxy.port': 'Port',
+    'multiproxy.server': 'Server',
+    'multiproxy.main': 'Main',
+    'multiproxy.mainHint':
+      'The system proxy is pointed at the main proxy; other ports are set manually in your apps.',
+    'multiproxy.start': 'Start',
+    'multiproxy.stop': 'Stop',
+    'multiproxy.state': 'State',
+    'multiproxy.address': 'Address',
+    'multiproxy.copyAddr': 'Copy address {address}',
+    'multiproxy.empty': 'No proxies yet. Add one to get started.',
+    'multiproxy.tunHint':
+      'The main proxy receives the system proxy setting; set other ports manually in your apps. Incompatible with Full tunnel.',
+    'multiproxy.addFailed': 'Failed to add proxy',
+    'multiproxy.updateFailed': 'Failed to update proxy',
+    'multiproxy.removeFailed': 'Failed to remove proxy',
+    'multiproxy.startFailed': 'Failed to start proxy',
+    'multiproxy.stopFailed': 'Failed to stop proxy',
+
     // status badge / connect button
     'status.offline': 'OFFLINE',
     'status.linking': 'LINKING',
@@ -186,6 +212,32 @@ export const translations: Record<Lang, Record<string, string>> = {
       'Трафик по своим серверам не учитывается и не ограничен подпиской.',
     'custom.addFailed': 'Не удалось добавить сервер',
     'custom.removeFailed': 'Не удалось удалить сервер',
+
+    // multi-proxy
+    'multiproxy.title': 'Мультипрокси',
+    'multiproxy.enableHint':
+      'Несколько локальных SOCKS5-прокси на разных портах, каждый — к своему серверу. Работает в режиме прокси; несовместимо с полным туннелем.',
+    'multiproxy.add': 'Добавить прокси',
+    'multiproxy.edit': 'Изменить прокси',
+    'multiproxy.remove': 'Удалить прокси на порту {port}',
+    'multiproxy.port': 'Порт',
+    'multiproxy.server': 'Сервер',
+    'multiproxy.main': 'Основной',
+    'multiproxy.mainHint':
+      'Системный прокси указывает на основной прокси; остальные порты прописываются в приложениях вручную.',
+    'multiproxy.start': 'Старт',
+    'multiproxy.stop': 'Стоп',
+    'multiproxy.state': 'Состояние',
+    'multiproxy.address': 'Адрес',
+    'multiproxy.copyAddr': 'Скопировать адрес {address}',
+    'multiproxy.empty': 'Пока нет прокси. Добавьте первый.',
+    'multiproxy.tunHint':
+      'Основной прокси получает системную настройку прокси; остальные порты пропишите в приложениях вручную. Несовместимо с полным туннелем.',
+    'multiproxy.addFailed': 'Не удалось добавить прокси',
+    'multiproxy.updateFailed': 'Не удалось изменить прокси',
+    'multiproxy.removeFailed': 'Не удалось удалить прокси',
+    'multiproxy.startFailed': 'Не удалось запустить прокси',
+    'multiproxy.stopFailed': 'Не удалось остановить прокси',
 
     // status badge / connect button
     'status.offline': 'ОФФЛАЙН',

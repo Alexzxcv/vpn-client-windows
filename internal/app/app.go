@@ -146,6 +146,13 @@ type App struct {
 	refreshing    bool      // идёт ли сейчас фоновый рефреш credential
 
 	refreshStop chan struct{} // закрывается для остановки фонового таймера рефреша
+
+	// multi-proxy: каждый запущенный прокси — отдельный процесс xray (см.
+	// multiproxy.go). Конфигурация (маппинги) живёт в settings; здесь — рантайм.
+	multiMu          sync.Mutex
+	multi            map[string]*proxyInstance
+	multiMainPort    int           // порт «основного» мульти-прокси, на который выставлен sysproxy (0 — нет)
+	multiRefreshStop chan struct{} // таймер рефреша credential'ов мульти-прокси
 }
 
 // New builds an App. log may be nil. socksPort/httpPort default to
@@ -167,6 +174,7 @@ func New(log *slog.Logger, be *backend.Client, xm *xray.Manager, sbm *singbox.Ma
 		id:          id,
 		set:         set,
 		cs:          customserver.Load(),
+		multi:       make(map[string]*proxyInstance),
 		ks:          killswitch.New(log),
 		upd:         updater.New(buildinfo.Version, nil),
 		ping:        newPinger(),
@@ -261,6 +269,7 @@ func (a *App) Logout(ctx context.Context) error {
 	// Disconnect tears down the engines, the refresh timer, the kill-switch and
 	// the system proxy, and clears lastServerID/expiresAt/wantConnected.
 	_ = a.Disconnect(ctx)
+	a.stopAllMulti()
 
 	// Belt-and-suspenders: drop any residual cached session state so a later
 	// login starts clean (location label, last error).
@@ -620,6 +629,10 @@ func (a *App) Connect(ctx context.Context, serverID *string, mode string) (State
 // lastServerID/lastMode/reconnecting bookkeeping).
 func (a *App) connect(ctx context.Context, serverID *string, mode Mode, manual bool) (State, error) {
 	_ = manual
+
+	// Взаимоисключение: одиночное подключение и мульти-прокси не уживаются (оба
+	// управляют xray и системным прокси). Глушим все мульти-прокси.
+	a.stopAllMulti()
 
 	// TUN требует прав администратора и наличия TUN-движка в сборке.
 	if mode == ModeTUN {

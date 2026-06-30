@@ -100,6 +100,35 @@ func TestGenerateConfig(t *testing.T) {
 	}
 }
 
+// httpPort == 0 (multi-proxy instances) must produce a SOCKS-only config: a
+// single socks-in inbound on the given port, no http-in.
+func TestGenerateConfig_SocksOnly(t *testing.T) {
+	cfg := backend.VLESSConfig{
+		Host: "example.com", Port: 443,
+		UUID: "11111111-2222-3333-4444-555555555555",
+		SNI:  "www.microsoft.com", PublicKey: "PUBKEY", ShortID: "abcd",
+	}
+	raw, err := GenerateConfig(cfg, 10810, 0)
+	if err != nil {
+		t.Fatalf("GenerateConfig: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	inbounds := parsed["inbounds"].([]any)
+	if len(inbounds) != 1 {
+		t.Fatalf("want 1 inbound (socks-only), got %d", len(inbounds))
+	}
+	in0 := inbounds[0].(map[string]any)
+	if in0["protocol"] != "socks" {
+		t.Fatalf("inbound protocol = %v, want socks", in0["protocol"])
+	}
+	if int(in0["port"].(float64)) != 10810 {
+		t.Fatalf("inbound port = %v, want 10810", in0["port"])
+	}
+}
+
 func TestGenerateConfigValidation(t *testing.T) {
 	_, err := GenerateConfig(backend.VLESSConfig{}, 1, 2)
 	if err == nil {

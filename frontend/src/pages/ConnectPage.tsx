@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type uPlot from 'uplot';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -8,13 +8,29 @@ import {
   Check,
   Copy,
   Globe,
+  Pencil,
+  Play,
+  Plus,
   Settings as SettingsIcon,
   ShieldAlert,
+  Square,
+  Star,
   Terminal,
   X,
 } from 'lucide-react';
-import { AUTO_SERVER_ID, type ConnMode } from '@/api/types';
-import { useConnection, useAuth, useUpdate, useT } from '@/stores/context';
+import {
+  AUTO_SERVER_ID,
+  type ConnMode,
+  type MultiProxyEntry,
+} from '@/api/types';
+import {
+  useConnection,
+  useAuth,
+  useMultiProxy,
+  useSettings,
+  useUpdate,
+  useT,
+} from '@/stores/context';
 import { StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, Eyebrow } from '@/components/ui/card';
@@ -26,6 +42,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Tooltip,
   TooltipContent,
@@ -56,12 +79,22 @@ export const ConnectPage = observer(function ConnectPage() {
   const conn = useConnection();
   const auth = useAuth();
   const update = useUpdate();
+  const settings = useSettings();
+  const multiProxy = useMultiProxy();
   const t = useT();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [customInput, setCustomInput] = useState('');
   const [adding, setAdding] = useState(false);
+
+  const multiProxyEnabled = settings.current?.multi_proxy_enabled ?? false;
+
+  // Multi-proxy add/edit dialog state. `editing` is the entry being edited, or
+  // null for a fresh "Add". `copiedAddr` flashes a check on the copied address.
+  const [mpDialogOpen, setMpDialogOpen] = useState(false);
+  const [mpEditing, setMpEditing] = useState<MultiProxyEntry | null>(null);
+  const [copiedAddr, setCopiedAddr] = useState<string | null>(null);
 
   const socks = conn.proxy?.socks ?? '127.0.0.1:10800';
   const curlHint = `curl --socks5 ${socks} https://ifconfig.me`;
@@ -125,8 +158,48 @@ export const ConnectPage = observer(function ConnectPage() {
     }
   }
 
+  async function copyAddress(addr: string) {
+    try {
+      await navigator.clipboard.writeText(addr);
+      setCopiedAddr(addr);
+      setTimeout(
+        () => setCopiedAddr((cur) => (cur === addr ? null : cur)),
+        1500,
+      );
+    } catch {
+      // clipboard unavailable — ignore
+    }
+  }
+
+  function openAddProxy() {
+    multiProxy.clearError();
+    setMpEditing(null);
+    setMpDialogOpen(true);
+  }
+
+  function openEditProxy(entry: MultiProxyEntry) {
+    multiProxy.clearError();
+    setMpEditing(entry);
+    setMpDialogOpen(true);
+  }
+
   const errorText =
     conn.actionError ?? (conn.state === 'error' ? conn.lastError : null);
+
+  // Settings carry the multi-proxy feature flag; load them once on mount so the
+  // section can appear without first visiting the Settings page.
+  useEffect(() => {
+    void settings.load();
+  }, [settings]);
+
+  // Resolve a multi-proxy entry's server_id to a human name. 'auto' →
+  // localized "Auto", otherwise look it up in the locations list (which carries
+  // both backend nodes and custom:<id> entries).
+  function serverName(serverId: string): string {
+    if (serverId === AUTO_SERVER_ID) return t('connect.autoName');
+    const loc = conn.locations.find((l) => l.id === serverId);
+    return loc?.name ?? serverId;
+  }
 
   async function addCustom() {
     const value = customInput.trim();
@@ -387,6 +460,162 @@ export const ConnectPage = observer(function ConnectPage() {
           <p className="text-2xs text-mute">{t('custom.note')}</p>
         </Card>
 
+        {/* multi-proxy — several local SOCKS5 proxies, each to its own server */}
+        {multiProxyEnabled && (
+          <Card className="flex flex-col gap-2 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <Eyebrow>{t('multiproxy.title')}</Eyebrow>
+              <Button size="sm" onClick={openAddProxy}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.5} />
+                {t('multiproxy.add')}
+              </Button>
+            </div>
+
+            {multiProxy.actionError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-sm border border-alert/40 bg-alert/10 px-2.5 py-1.5 text-xs text-alert"
+              >
+                <AlertTriangle
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                  strokeWidth={1.5}
+                />
+                <span className="break-words">{multiProxy.actionError}</span>
+              </div>
+            )}
+
+            {multiProxy.entries.length === 0 ? (
+              <p className="text-2xs text-mute">{t('multiproxy.empty')}</p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {multiProxy.entries.map((e) => {
+                  const addr = e.address ?? `127.0.0.1:${e.port}`;
+                  const running =
+                    e.state === 'connected' || e.state === 'connecting';
+                  return (
+                    <li
+                      key={e.id}
+                      className="flex flex-col gap-1.5 rounded-sm bg-void px-2 py-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <code className="selectable truncate font-mono text-sm text-frost">
+                            {addr}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => void copyAddress(addr)}
+                            aria-label={t('multiproxy.copyAddr', {
+                              address: addr,
+                            })}
+                            title={t('multiproxy.copyAddr', { address: addr })}
+                          >
+                            {copiedAddr === addr ? (
+                              <Check
+                                className="h-3.5 w-3.5 text-ok"
+                                strokeWidth={1.5}
+                              />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />
+                            )}
+                          </Button>
+                          {e.main && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Star
+                                  className="h-3.5 w-3.5 shrink-0 fill-ion text-ion"
+                                  strokeWidth={1.5}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('multiproxy.main')}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                        <StatusBadge state={e.state} />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-2xs text-mute">
+                          {serverName(e.server_id)}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              running
+                                ? void multiProxy.stop(e.id)
+                                : void multiProxy.start(e.id)
+                            }
+                            disabled={multiProxy.busy}
+                          >
+                            {running ? (
+                              <>
+                                <Square
+                                  className="mr-1.5 h-3 w-3"
+                                  strokeWidth={1.5}
+                                />
+                                {t('multiproxy.stop')}
+                              </>
+                            ) : (
+                              <>
+                                <Play
+                                  className="mr-1.5 h-3 w-3"
+                                  strokeWidth={1.5}
+                                />
+                                {t('multiproxy.start')}
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => openEditProxy(e)}
+                            aria-label={t('multiproxy.edit')}
+                            title={t('multiproxy.edit')}
+                          >
+                            <Pencil className="h-4 w-4" strokeWidth={1.5} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => void multiProxy.remove(e.id)}
+                            disabled={multiProxy.busy}
+                            aria-label={t('multiproxy.remove', {
+                              port: e.port,
+                            })}
+                            title={t('multiproxy.remove', { port: e.port })}
+                          >
+                            <X className="h-4 w-4" strokeWidth={1.5} />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {e.error && (
+                        <div className="flex items-start gap-1.5 text-2xs text-alert">
+                          <AlertTriangle
+                            className="mt-0.5 h-3 w-3 shrink-0"
+                            strokeWidth={1.5}
+                          />
+                          <span className="break-words">{e.error}</span>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <p className="text-2xs text-mute">{t('multiproxy.tunHint')}</p>
+          </Card>
+        )}
+
         {/* instrument cells */}
         <div className="grid grid-cols-2 gap-2">
           <MetricCell
@@ -458,7 +687,154 @@ export const ConnectPage = observer(function ConnectPage() {
         </Card>
         )}
 
+        <MultiProxyDialog
+          open={mpDialogOpen}
+          onOpenChange={setMpDialogOpen}
+          editing={mpEditing}
+        />
+
       </div>
     </TooltipProvider>
+  );
+});
+
+/**
+ * Add/edit dialog for a multi-proxy entry. Local form state is keyed to the
+ * `editing` entry (or defaults for a fresh add); on submit it calls the store's
+ * add/update and closes on success.
+ */
+const MultiProxyDialog = observer(function MultiProxyDialog({
+  open,
+  onOpenChange,
+  editing,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  editing: MultiProxyEntry | null;
+}) {
+  const conn = useConnection();
+  const multiProxy = useMultiProxy();
+  const t = useT();
+
+  const [port, setPort] = useState('10810');
+  const [serverId, setServerId] = useState<string>(AUTO_SERVER_ID);
+  const [main, setMain] = useState(false);
+
+  // Reseed the form whenever the dialog opens (for add: defaults; for edit:
+  // the entry's current values).
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setPort(String(editing.port));
+      setServerId(editing.server_id);
+      setMain(editing.main);
+    } else {
+      setPort('10810');
+      setServerId(AUTO_SERVER_ID);
+      setMain(false);
+    }
+  }, [open, editing]);
+
+  async function onSubmit() {
+    const portNum = Number(port);
+    if (!Number.isInteger(portNum) || portNum <= 0) return;
+    const ok = editing
+      ? await multiProxy.update(editing.id, portNum, serverId, main)
+      : await multiProxy.add(portNum, serverId, main);
+    if (ok) onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !multiProxy.busy && onOpenChange(o)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {editing ? t('multiproxy.edit') : t('multiproxy.add')}
+          </DialogTitle>
+          <DialogDescription>{t('multiproxy.mainHint')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-2xs text-mute">{t('multiproxy.port')}</span>
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-2xs text-mute">{t('multiproxy.server')}</span>
+            <Select value={serverId} onValueChange={setServerId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTO_SERVER_ID}>
+                  {t('connect.autoName')}
+                </SelectItem>
+                {conn.locations.map((loc) => (
+                  <SelectItem key={loc.id} value={loc.id}>
+                    {loc.name} — {loc.location}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-sm text-frost">{t('multiproxy.main')}</span>
+              <span className="text-2xs text-mute">
+                {t('multiproxy.mainHint')}
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={main}
+              onClick={() => setMain((v) => !v)}
+              className={`inline-flex h-5 w-9 shrink-0 items-center overflow-hidden rounded-full px-0.5 transition-colors ${
+                main ? 'bg-ion' : 'bg-graphite'
+              }`}
+            >
+              <span
+                className={`block h-4 w-4 rounded-full bg-frost transition-transform ${
+                  main ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </label>
+
+          {multiProxy.actionError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-sm border border-alert/40 bg-alert/10 px-2.5 py-1.5 text-xs text-alert"
+            >
+              <AlertTriangle
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                strokeWidth={1.5}
+              />
+              <span className="break-words">{multiProxy.actionError}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={multiProxy.busy}
+          >
+            {t('common.cancel')}
+          </Button>
+          <Button onClick={() => void onSubmit()} disabled={multiProxy.busy}>
+            {editing ? t('common.save') : t('common.add')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 });
